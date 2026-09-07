@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "notes": "Rilis pertama dengan auto-update. Termasuk alur draf penjadwalan, mode daftar per-issue, dan perbaikan tampilan Windows.",
+  "pub_date": "2026-09-07T13:35:59.489Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTjMyRUJHdGJuYWdTdzJ5T20wYSs5R2JrbmFSTjRVSDRkL0N4RU9SNXN6ei8xRytxWGp5OHhNdG9icnJPb2loUHl6bVREVFRFd1o3VkN0OW1tUVNXa2dOdEUyK3dXbGdVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4Nzg3NjI2CWZpbGU6SklSQSBMb2d3b3JrXzEuMC4wX3g2NC1zZXR1cC5leGUKUkloWEwzOWl4NTVhRFpCdXVJdmRyUkhOeGtaUEJEQ0dtN2pXelJNT0U0L1R2MHoxTWd3eWJnVHlkOTB1Z3NvZ3RyUjR4em5XdFppa0U1Rjc2elJVQ1E9PQo=",
+      "url": "https://github.com/wembyjuniarrochman/jira-logwork/releases/download/v1.0.0/JIRA.Logwork_1.0.0_x64-setup.exe"
+    },
+    "darwin-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTjMyRUJHdGJuYWx2VGU2NnpNWG9haEJYaEt5c0VvT01YSEtnZTBkNVFDTlZZMGthc2dtNk9IbWxHM3hKRHhHKzhsRTY0bnZLb1hzZkNnR2NhWnRpUnhPcEsyY2Jkb0FBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4Nzg4MDc5CWZpbGU6SklSQSBMb2d3b3JrLmFwcC50YXIuZ3oKZUc4TStrUEFyWmhvRnd4aWRTQjcxQllqMkJqNjJKdGo1bXpsM1lRWS9sKzh0cWJueEhSZ0xPS1NpOVUzS2RwcUlPS2V3QStiTmpqSlJXd0JhWWJRRHc9PQo=",
+      "url": "https://github.com/wembyjuniarrochman/jira-logwork/releases/download/v1.0.0/JIRA.Logwork.app.tar.gz"
+    },
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTjMyRUJHdGJuYWx2VGU2NnpNWG9haEJYaEt5c0VvT01YSEtnZTBkNVFDTlZZMGthc2dtNk9IbWxHM3hKRHhHKzhsRTY0bnZLb1hzZkNnR2NhWnRpUnhPcEsyY2Jkb0FBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4Nzg4MDc5CWZpbGU6SklSQSBMb2d3b3JrLmFwcC50YXIuZ3oKZUc4TStrUEFyWmhvRnd4aWRTQjcxQllqMkJqNjJKdGo1bXpsM1lRWS9sKzh0cWJueEhSZ0xPS1NpOVUzS2RwcUlPS2V3QStiTmpqSlJXd0JhWWJRRHc9PQo=",
+      "url": "https://github.com/wembyjuniarrochman/jira-logwork/releases/download/v1.0.0/JIRA.Logwork.app.tar.gz"
+    }
+  }
+}

@@ -45,6 +45,20 @@ if (owner.startsWith("GANTI-")) {
 const downloadBase = `https://github.com/${owner}/${repo}/releases/download/v${version}`;
 
 // --- Cari artefak + tanda tangannya -------------------------------------
+/**
+ * Nama aset sebagaimana GitHub menyimpannya.
+ *
+ * GitHub menormalkan nama file rilis: karakter di luar `[A-Za-z0-9._-]`
+ * diganti titik. `productName` di sini mengandung spasi, jadi
+ * "JIRA Logwork_1.0.0_x64-setup.exe" terunggah sebagai
+ * "JIRA.Logwork_1.0.0_x64-setup.exe". Memakai nama lokal apa adanya membuat
+ * URL di feed 404 — feed-nya sendiri tetap terbaca, sehingga kegagalannya
+ * baru muncul saat user menekan tombol Update.
+ */
+function githubAssetName(fileName) {
+  return fileName.replace(/[^A-Za-z0-9._-]/g, ".");
+}
+
 /** Cari satu file yang cocok `pred` di dalam `dir`; null bila tidak ada. */
 function findIn(dir, pred) {
   if (!existsSync(dir)) return null;
@@ -56,7 +70,9 @@ const targets = [
   {
     keys: ["windows-x86_64"],
     dir: join(ROOT, "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"),
-    match: (f) => f.endsWith("-setup.exe"),
+    // Terikat versi: build lama tetap tertinggal di folder ini, dan tanpa
+    // pengikatan ini feed bisa menunjuk installer versi sebelumnya.
+    match: (f) => f.includes(`_${version}_`) && f.endsWith("-setup.exe"),
     label: "Windows (NSIS)",
   },
   {
@@ -90,7 +106,7 @@ for (const t of targets) {
   for (const key of t.keys) {
     platforms[key] = {
       signature,
-      url: `${downloadBase}/${encodeURIComponent(fileName)}`,
+      url: `${downloadBase}/${githubAssetName(fileName)}`,
     };
   }
 }

@@ -10,7 +10,7 @@
     "test": "vitest --run",
     "test:watch": "vitest",
     "release:win": "tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis",
-    "release:mac": "tauri build --target universal-apple-darwin --bundles dmg",
+    "release:mac": "tauri build --target universal-apple-darwin --bundles app,dmg",
     "release:feed": "node scripts/make-latest-json.mjs"
   },
   "dependencies": {

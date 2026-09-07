@@ -90,6 +90,11 @@ npm run release:win
 npm run release:mac
 ```
 
+`release:mac` sengaja memakai `--bundles app,dmg`, bukan `dmg` saja. Artefak
+updater macOS (`.app.tar.gz`) diturunkan dari target **app**; kalau hanya `dmg`
+yang dibangun, build tetap sukses tapi macOS tidak akan punya paket update
+sama sekali — Windows jalan, macOS diam.
+
 ### Langkah 3 — rakit feed
 
 ```bash
