@@ -10,6 +10,7 @@
    * gagal — server update tidak terjangkau bukan alasan untuk mengganggu
    * user yang sedang bekerja.
    */
+  import { t } from "../stores/i18n.svelte";
   import {
     checkForUpdate,
     downloadAndInstall,
@@ -79,7 +80,7 @@
 
     <div class="update-body">
       {#if phase === "installing"}
-        <span class="update-title">Memasang versi {update.version}…</span>
+        <span class="update-title">{t("update.installing", { v: update.version })}</span>
         <div
           class="progress-track"
           role="progressbar"
@@ -95,18 +96,18 @@
         </div>
         <span class="update-sub">
           {#if percent === null}
-            Mengunduh {formatBytes(progress.downloaded)}…
+            {t("update.downloading", { n: formatBytes(progress.downloaded) })}
           {:else}
             {percent}% · {formatBytes(progress.downloaded)}
           {/if}
         </span>
       {:else if phase === "error"}
-        <span class="update-title">Gagal memasang update</span>
+        <span class="update-title">{t("update.failed")}</span>
         <span class="update-sub error">{errorMsg}</span>
       {:else}
-        <span class="update-title">Versi {update.version} tersedia</span>
+        <span class="update-title">{t("update.available", { v: update.version })}</span>
         <span class="update-sub">
-          Aplikasi akan dimuat ulang setelah update dipasang.
+          {t("update.willRestart")}
         </span>
       {/if}
     </div>
@@ -114,10 +115,10 @@
     {#if phase !== "installing"}
       <div class="update-actions">
         <button type="button" class="btn-later" onclick={() => (dismissed = true)}>
-          Nanti
+          {t("common.later")}
         </button>
         <button type="button" class="btn-install" onclick={install}>
-          {phase === "error" ? "Coba lagi" : "Update"}
+          {phase === "error" ? t("common.retry") : t("update.action")}
         </button>
       </div>
     {/if}
@@ -136,7 +137,7 @@
     width: min(24rem, calc(100vw - 2.5rem));
     padding: 0.875rem 1rem;
     border-radius: 0.875rem;
-    box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 18px 40px -12px rgb(var(--shadow-rgb) / calc(0.6 * var(--shadow-strength)));
     animation: update-bar-in 220ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
@@ -144,7 +145,7 @@
     width: 1.25rem;
     height: 1.25rem;
     flex-shrink: 0;
-    color: #a5b4fc;
+    color: var(--text-accent);
   }
 
   .update-body {
@@ -158,16 +159,16 @@
   .update-title {
     font-size: 0.875rem;
     font-weight: 600;
-    color: #f1f5f9;
+    color: var(--text-primary);
   }
 
   .update-sub {
     font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgb(var(--fg-rgb) / 0.6);
   }
 
   .update-sub.error {
-    color: #fca5a5;
+    color: var(--text-danger);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -176,7 +177,7 @@
   .progress-track {
     height: 0.375rem;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.1);
+    background: rgb(var(--fg-rgb) / 0.1);
     overflow: hidden;
   }
 
@@ -221,16 +222,16 @@
   .btn-later {
     border: 1px solid var(--glass-border);
     background: transparent;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgb(var(--fg-rgb) / 0.7);
   }
 
   .btn-later:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgb(var(--fg-rgb) / 0.08);
   }
 
   .btn-install {
     border: none;
-    color: #fff;
+    color: var(--text-on-accent);
     background: linear-gradient(
       135deg,
       var(--accent-from) 0%,

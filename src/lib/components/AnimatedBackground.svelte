@@ -38,7 +38,7 @@
     inset: 0;
     z-index: 0;
     overflow: hidden;
-    background: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 25%, #0d1b2a 50%, #1b2838 75%, #0f0f23 100%);
+    background: var(--app-bg-gradient);
   }
 
   /* Gradient orbs — GPU-accelerated with transform and opacity only */
@@ -144,9 +144,9 @@
     inset: 0;
     background: radial-gradient(
       ellipse at center,
-      rgba(0, 0, 0, 0.4) 0%,
-      rgba(0, 0, 0, 0.2) 50%,
-      rgba(0, 0, 0, 0.5) 100%
+      rgb(var(--shadow-rgb) / calc(0.4 * var(--shadow-strength))) 0%,
+      rgb(var(--shadow-rgb) / calc(0.2 * var(--shadow-strength))) 50%,
+      rgb(var(--shadow-rgb) / calc(0.5 * var(--shadow-strength))) 100%
     );
     backdrop-filter: blur(1px);
   }

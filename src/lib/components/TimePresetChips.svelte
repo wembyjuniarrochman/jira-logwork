@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../stores/i18n.svelte";
   /**
    * TimePresetChips
    *
@@ -16,7 +17,12 @@
    * Validates: Requirements 8.1, 8.2, 11.3, 11.4, 13.5
    */
 
-  type ChipValue = 0.5 | 1 | 2 | 4 | 8;
+  import {
+    PRESET_MINUTES,
+    minutesOf,
+    formatDuration,
+    type ChipValue,
+  } from "../stores/quickLogReducer";
 
   interface Props {
     value: ChipValue | null;
@@ -25,21 +31,29 @@
 
   const { value, onChange }: Props = $props();
 
-  const VALUES: readonly ChipValue[] = [0.5, 1, 2, 4, 8] as const;
+  // Daftar preset berasal dari satu sumber di store; di sini dipakai dalam
+  // jam agar antarmuka komponen tidak berubah.
+  const VALUES: readonly number[] = PRESET_MINUTES.map((m) => m / 60);
 
   // Roving-tabindex anchor: the index of the chip that is the current tab stop.
   // - When `value` is one of the chip values, that chip is tabbable.
   // - When `value` is null, the first chip is tabbable (no chip is checked).
+  // Dicocokkan lewat menit, bukan kesetaraan float: 5/60 tidak pernah sama
+  // persis dengan nilai jam yang datang dari nilai tersimpan.
   const focusIndex = $derived(
-    value === null ? 0 : Math.max(0, VALUES.indexOf(value as ChipValue)),
+    value === null
+      ? 0
+      : Math.max(
+          0,
+          VALUES.findIndex((v) => minutesOf(v) === minutesOf(value)),
+        ),
   );
 
   // Refs to each button for focus management on arrow-key navigation.
   let buttons: (HTMLButtonElement | null)[] = $state(VALUES.map(() => null));
 
-  function format(v: ChipValue): string {
-    // 0.5 → "0.5h"; 1, 2, 4, 8 → "1h", "2h", ...
-    return `${v}h`;
+  function format(v: number): string {
+    return formatDuration(minutesOf(v));
   }
 
   function selectAt(index: number) {
@@ -80,7 +94,7 @@
 <div
   class="chip-group"
   role="radiogroup"
-  aria-label="Hours to log"
+  aria-label={t("chips.label")}
 >
   {#each VALUES as chip, i (chip)}
     {@const checked = value === chip}
@@ -117,7 +131,7 @@
     border-radius: 0.625rem;
     border: 1px solid var(--glass-border);
     background: var(--glass-bg-strong);
-    color: rgba(255, 255, 255, 0.85);
+    color: rgb(var(--fg-rgb) / 0.85);
     font-size: 0.875rem;
     font-weight: 500;
     line-height: 1;
@@ -132,9 +146,9 @@
   }
 
   .chip:hover {
-    background: rgba(255, 255, 255, 0.12);
-    border-color: rgba(255, 255, 255, 0.18);
-    color: #f1f5f9;
+    background: rgb(var(--fg-rgb) / 0.12);
+    border-color: rgb(var(--fg-rgb) / 0.18);
+    color: var(--text-primary);
   }
 
   /* Visible focus ring distinct from hover (R11.4). */

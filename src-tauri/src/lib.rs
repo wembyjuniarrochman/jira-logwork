@@ -26,6 +26,17 @@ use std::time::Duration;
 ///
 /// Cloning is cheap: the client is reference-counted internally and clones
 /// share the same pool.
+/// Cache id custom field "Work Reference" per base URL.
+///
+/// `None` sebagai nilai berarti "sudah dicari, instance ini memang tidak
+/// punya field tersebut" — dibedakan dari "belum pernah dicari", supaya
+/// instance tanpa field itu tidak mengulang lookup di setiap reconcile.
+fn work_ref_cache() -> &'static Mutex<std::collections::HashMap<String, Option<String>>> {
+    static CACHE: OnceLock<Mutex<std::collections::HashMap<String, Option<String>>>> =
+        OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
 fn http_client() -> &'static Client {
     static CLIENT: OnceLock<Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
@@ -201,14 +212,58 @@ async fn get_projects(base_url: String, email: String, api_token: String, is_clo
     resp.json().await.map_err(|e| e.to_string())
 }
 
+/// True bila `s` berbentuk issue key utuh, mis. "UMS-405". Dipakai untuk
+/// memutuskan apakah pencarian perlu ikut mencocokkan `key`.
+fn is_issue_key(s: &str) -> bool {
+    let mut parts = s.splitn(2, '-');
+    let (Some(prefix), Some(num)) = (parts.next(), parts.next()) else {
+        return false;
+    };
+    !prefix.is_empty()
+        && prefix.chars().all(|c| c.is_ascii_alphanumeric())
+        && !num.is_empty()
+        && num.chars().all(|c| c.is_ascii_digit())
+}
+
 #[tauri::command]
 async fn search_issues(base_url: String, email: String, api_token: String, is_cloud: bool, project_key: String, query: String) -> Result<String, String> {
     let config = JiraConfig { base_url, email, api_token, is_cloud };
     let client = http_client().clone();
-    let jql = if query.is_empty() {
-        format!("project = {} ORDER BY updated DESC", project_key)
+    // JQL string literal: backslash dan kutip harus di-escape, kalau tidak
+    // query yang memuat `"` akan memecah sintaksnya.
+    let escaped = query.trim().replace('\\', "\\\\").replace('"', "\\\"");
+
+    // Klausa project dihilangkan saat scope-nya "semua project". Sebelumnya
+    // `project = ` tetap ditulis dengan nilai kosong, menghasilkan JQL tidak
+    // sah — pemanggilnya memang menangkap error itu lalu memindai project
+    // satu per satu, jadi pencarian global selalu menempuh jalur mahal.
+    let project_clause = if project_key.trim().is_empty() {
+        String::new()
     } else {
-        format!("project = {} AND summary ~ \"{}\" ORDER BY updated DESC", project_key, query)
+        format!("project = {} AND ", project_key)
+    };
+
+    let jql = if escaped.is_empty() {
+        match project_key.trim().is_empty() {
+            true => "ORDER BY updated DESC".to_string(),
+            false => format!("project = {} ORDER BY updated DESC", project_key),
+        }
+    } else {
+        // Kotak ini menjanjikan "issue key atau summary", tapi `summary ~`
+        // tidak pernah mencocokkan key. Saat inputnya berbentuk key utuh
+        // (mis. "UMS-405"), cocokkan key-nya juga.
+        let key_clause = if is_issue_key(&escaped) {
+            format!(" OR key = \"{}\"", escaped.to_uppercase())
+        } else {
+            String::new()
+        };
+        // Sufiks `*` mengubah pencocokan kata-utuh jadi per-awalan-kata.
+        // Tanpa ini, `summary ~ "p"` tidak pernah cocok dengan "Payment",
+        // sehingga mengetik satu-dua huruf selalu menghasilkan nol hasil.
+        format!(
+            "{}(summary ~ \"{}*\"{}) ORDER BY updated DESC",
+            project_clause, escaped, key_clause
+        )
     };
     let url = format!("{}/rest/api/3/search/jql?jql={}&maxResults=50&fields=summary,issuetype,subtasks",
         config.base_url.trim_end_matches('/'), urlencoding::encode(&jql));
@@ -573,13 +628,64 @@ async fn get_my_worklogs(base_url: String, email: String, api_token: String, is_
         false
     };
 
+    // Step 0b: Resolve the "Work Reference" custom field id.
+    //
+    // It is a per-instance custom field, so its `customfield_NNNNN` key is
+    // not knowable upfront — we look it up by display name. The lookup is
+    // best-effort: if the instance has no such field, or the call fails, we
+    // simply omit the value rather than failing the whole worklog fetch.
+    //
+    // Cached per base URL: custom field ids are stable for the lifetime of a
+    // Jira instance, and this command runs on every reconcile — without the
+    // cache it would add a round trip to each one.
+    let cached_field = work_ref_cache()
+        .lock()
+        .ok()
+        .and_then(|m| m.get(&config.base_url).cloned());
+
+    let work_ref_field: Option<String> = if let Some(hit) = cached_field {
+        hit
+    } else {
+        let looked_up = async {
+        let url = format!("{}/field", config.api_base());
+        let r = client
+            .get(&url)
+            .header("Authorization", config.auth_header())
+            .header("Content-Type", "application/json")
+            .send()
+            .await
+            .ok()?;
+        if !r.status().is_success() {
+            return None;
+        }
+        let fields: Vec<serde_json::Value> = r.json().await.ok()?;
+        fields.into_iter().find_map(|f| {
+            let name = f["name"].as_str()?.trim().to_lowercase();
+            if name == "work reference" {
+                Some(f["id"].as_str()?.to_string())
+            } else {
+                None
+            }
+        })
+        }
+        .await;
+        if let Ok(mut m) = work_ref_cache().lock() {
+            m.insert(config.base_url.clone(), looked_up.clone());
+        }
+        looked_up
+    };
+
     // Step 1: Find issues with my worklogs in the requested range.
     // worklogAuthor = currentUser() restricts the search to issues where I
     // have logged at least one worklog; the per-worklog filter below then
     // drops any non-mine entries on those issues.
     let jql = format!("worklogDate >= '{}' AND worklogDate <= '{}' AND worklogAuthor = currentUser() ORDER BY updated DESC", start_date, end_date);
-    let search_url = format!("{}/rest/api/3/search/jql?jql={}&maxResults=1000&fields=summary,issuetype",
-        config.base_url.trim_end_matches('/'), urlencoding::encode(&jql));
+    let fields_param = match &work_ref_field {
+        Some(k) => format!("summary,issuetype,{}", k),
+        None => "summary,issuetype".to_string(),
+    };
+    let search_url = format!("{}/rest/api/3/search/jql?jql={}&maxResults=1000&fields={}",
+        config.base_url.trim_end_matches('/'), urlencoding::encode(&jql), fields_param);
     let resp = client.get(&search_url)
         .header("Authorization", config.auth_header())
         .header("Content-Type", "application/json")
@@ -599,25 +705,49 @@ async fn get_my_worklogs(base_url: String, email: String, api_token: String, is_
     let api_base = config.api_base();
     let auth = config.auth_header();
 
+    /// Human-readable label of a Work Reference value. The field may come
+    /// back as an option object (`value` / `name`), a plain string, or an
+    /// array when it is multi-select; anything else yields None.
+    fn work_ref_label(v: &serde_json::Value) -> Option<String> {
+        match v {
+            serde_json::Value::Null => None,
+            serde_json::Value::String(s) if !s.trim().is_empty() => Some(s.clone()),
+            serde_json::Value::Array(items) => {
+                let joined: Vec<String> = items.iter().filter_map(work_ref_label).collect();
+                if joined.is_empty() { None } else { Some(joined.join(", ")) }
+            }
+            serde_json::Value::Object(_) => v["value"]
+                .as_str()
+                .or_else(|| v["name"].as_str())
+                .map(|s| s.to_string()),
+            _ => None,
+        }
+    }
+
     // Build owned per-issue futures so the iterator is `Send`.
-    let issue_inputs: Vec<(String, String)> = issues
+    let issue_inputs: Vec<(String, String, String)> = issues
         .iter()
         .map(|issue| {
+            let work_ref = work_ref_field
+                .as_ref()
+                .and_then(|k| work_ref_label(&issue["fields"][k]))
+                .unwrap_or_default();
             (
                 issue["key"].as_str().unwrap_or("").to_string(),
                 issue["fields"]["summary"].as_str().unwrap_or("").to_string(),
+                work_ref,
             )
         })
         .collect();
 
-    let fetched: Vec<(String, String, Vec<serde_json::Value>)> =
-        futures::stream::iter(issue_inputs.into_iter().map(|(key, summary)| {
+    let fetched: Vec<(String, String, String, Vec<serde_json::Value>)> =
+        futures::stream::iter(issue_inputs.into_iter().map(|(key, summary, work_ref)| {
             let client = client.clone();
             let api_base = api_base.clone();
             let auth = auth.clone();
             async move {
                 if key.is_empty() {
-                    return (key, summary, Vec::new());
+                    return (key, summary, work_ref, Vec::new());
                 }
                 let wl_url = format!("{}/issue/{}/worklog?maxResults=1000", api_base, key);
                 let wl_resp = client
@@ -634,7 +764,7 @@ async fn get_my_worklogs(base_url: String, email: String, api_token: String, is_
                     }
                     _ => Vec::new(),
                 };
-                (key, summary, worklogs)
+                (key, summary, work_ref, worklogs)
             }
         }))
         .buffer_unordered(CONCURRENCY)
@@ -642,7 +772,7 @@ async fn get_my_worklogs(base_url: String, email: String, api_token: String, is_
         .await;
 
     let mut result_issues: Vec<serde_json::Value> = Vec::new();
-    for (key, summary, all) in fetched {
+    for (key, summary, work_ref, all) in fetched {
         let mine: Vec<serde_json::Value> =
             all.into_iter().filter(|w| is_mine(w)).collect();
         if mine.is_empty() {
@@ -650,7 +780,11 @@ async fn get_my_worklogs(base_url: String, email: String, api_token: String, is_
         }
         result_issues.push(json!({
             "key": key,
-            "fields": { "summary": summary, "worklog": { "worklogs": mine } }
+            "fields": {
+                "summary": summary,
+                "workReference": work_ref,
+                "worklog": { "worklogs": mine }
+            }
         }));
     }
 

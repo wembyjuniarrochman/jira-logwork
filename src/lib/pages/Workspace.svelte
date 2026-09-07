@@ -20,6 +20,7 @@
    * freshness window.
    */
 
+  import { t } from "../stores/i18n.svelte";
   import { invoke } from "@tauri-apps/api/core";
 
   import AnimatedBackground from "../components/AnimatedBackground.svelte";
@@ -66,6 +67,11 @@
   } from "../stores/autoScheduleStore";
   import { isHoliday } from "../stores/indonesianHolidaysStore";
   import {
+    loadBreakConfig,
+    DEFAULT_BREAK_CONFIG,
+    type BreakConfig,
+  } from "../stores/breakStore";
+  import {
     loadAuditLog,
     saveAuditLog,
     clearAuditLog,
@@ -104,14 +110,20 @@
   // ---------------------------------------------------------------------
   // Worklog fetch range
   //
-  // Dibatasi maksimal ±2 bulan agar loading ringan: setiap fetch mencakup
-  // tanggal 1 bulan sebelumnya s/d Sabtu di minggu `today`. Artinya
+  // Dibatasi ±2 bulan agar loading ringan: dari tanggal 1 bulan sebelumnya
+  // sampai sel terakhir grid bulan berjalan. Artinya
   //   - bulan berjalan + satu bulan penuh ke belakang selalu tersedia,
   //     jadi CalendarGrid bisa mundur satu bulan tanpa re-fetch;
   //   - navigasi lebih jauh ke belakang menampilkan hari kosong (datanya
-  //     memang tidak di-fetch — trade-off untuk performa);
-  //   - the end-date snaps to a Saturday so it matches how WeeklySummary
-  //     thinks about ISO weeks.
+  //     memang tidak di-fetch — trade-off untuk performa).
+  //
+  // Batas akhir mengikuti grid bulan, bukan Sabtu minggu ini. Sebelumnya
+  // rentangnya berhenti di akhir minggu berjalan, padahal grid bulan
+  // menampilkan sisa bulan itu juga — dan sel-sel tersebut adalah target
+  // drag-and-drop yang sah. Memindahkan worklog ke sana berhasil di Jira
+  // tetapi entrinya lenyap dari layar, karena reconcile berikutnya tidak
+  // pernah meminta tanggal itu. Setiap tanggal yang bisa ditampilkan
+  // kalender harus ikut di-fetch.
   //
   // Computed once from `today` (which is itself frozen for the session),
   // so the cache key stays stable across renders.
@@ -121,13 +133,28 @@
     return toYMD(new Date(d.getFullYear(), d.getMonth() - 1, 1));
   }
 
-  function endOfWeekSaturdayYMD(d: Date): string {
-    const sat = new Date(d.getFullYear(), d.getMonth(), d.getDate() + (6 - d.getDay()));
-    return toYMD(sat);
+  /**
+   * Sel terakhir pada grid bulan `d`. CalendarGrid membangun 42 sel mulai
+   * dari hari Minggu pada/sebelum tanggal 1, jadi akhirnya adalah 41 hari
+   * setelah awal grid itu.
+   */
+  function endOfMonthGridYMD(d: Date): string {
+    const first = new Date(d.getFullYear(), d.getMonth(), 1);
+    const gridStart = new Date(
+      first.getFullYear(),
+      first.getMonth(),
+      1 - first.getDay(),
+    );
+    const gridEnd = new Date(
+      gridStart.getFullYear(),
+      gridStart.getMonth(),
+      gridStart.getDate() + 41,
+    );
+    return toYMD(gridEnd);
   }
 
   const fetchStartDate = startOfPrevMonthYMD(today);
-  const fetchEndDate = endOfWeekSaturdayYMD(today);
+  const fetchEndDate = endOfMonthGridYMD(today);
 
   let recentIssues = $state<RecentIssue[]>([]);
   let recentIssuesReady = $state<boolean>(false);
@@ -405,6 +432,11 @@
 
     let failed = 0;
     const audits: AuditEntry[] = [];
+    // Edit yang sukses ditulis balik ke server-truth di sini, bukan
+    // diserahkan sepenuhnya ke reconcile. Kalau tanggal tujuannya berada di
+    // luar jendela fetch, refetch tidak akan pernah mengembalikannya dan
+    // entrinya lenyap padahal Jira sudah menerimanya.
+    const succeeded: PendingEdit[] = [];
     for (const edit of edits) {
       const date = edit.started.slice(0, 10);
       const hours = edit.timeSpentSeconds / 3600;
@@ -420,6 +452,7 @@
           started: edit.started,
           comment: null,
         });
+        succeeded.push(edit);
         audits.push(
           makeAuditEntry({
             action: "edit",
@@ -505,11 +538,21 @@
       void saveAuditLog(auditLog);
     }
 
+    // Pindahkan edit yang sukses ke server-truth sebelum staging dibersihkan,
+    // supaya derived `worklogsByDate` tidak sempat memantul balik ke posisi
+    // lama — dan tetap benar walau tanggal tujuannya di luar jendela fetch.
+    if (succeeded.length > 0) {
+      serverWorklogsByDate = applyPendingEdits(
+        serverWorklogsByDate,
+        Object.fromEntries(succeeded.map((e) => [e.worklogId, e])),
+      );
+    }
+
     pendingEdits = {};
     pendingDrafts = failedDrafts;
     submittingChanges = false;
     if (failed > 0) {
-      submitChangesError = `Gagal menyimpan ${failed} perubahan. Silakan coba lagi.`;
+      submitChangesError = t("staged.failed", { n: failed });
     }
     // Reconcile from Jira — `started` may be normalised server-side.
     void fetchWorklogs(true);
@@ -556,10 +599,10 @@
   // Label bar staging — bedakan draf jadwal dari edit kalender biasa.
   let pendingLabel = $derived(
     draftCount > 0 && editCount > 0
-      ? `${editCount} perubahan · ${draftCount} draf jadwal otomatis`
+      ? t("staged.pendingBoth", { e: editCount, d: draftCount })
       : draftCount > 0
-        ? `${draftCount} draf jadwal otomatis — periksa lalu submit`
-        : `${editCount} perubahan belum disimpan`,
+        ? t("staged.pendingDrafts", { n: draftCount })
+        : t("staged.pendingEdits", { n: editCount }),
   );
 
   let worklogsLoading = $state<boolean>(true);
@@ -574,6 +617,10 @@
     apiToken: "",
   });
   let isCloud = $state<boolean>(true);
+
+  // Jam istirahat: dipakai QuickLogCard untuk memotong durasi, dan
+  // CalendarGrid untuk menggambar pitanya.
+  let breakConfig = $state<BreakConfig>({ ...DEFAULT_BREAK_CONFIG });
 
   // --- Auto-schedule (recurring daily worklogs) ---
   let autoScheduleConfig = $state<AutoScheduleConfig>({
@@ -883,6 +930,8 @@
       for (const issue of issues) {
         const issueKey: string = issue?.key ?? "";
         const summary: string = issue?.fields?.summary ?? "";
+        // Custom field per-instance; backend mengirim "" bila tidak ada.
+        const workReference: string = issue?.fields?.workReference ?? "";
         const all: JiraWorklog[] = issue?.fields?.worklog?.worklogs ?? [];
         // Backend (`get_my_worklogs`) already filters by the authenticated
         // user via /myself (accountId/key/name + email fallback), so we
@@ -910,17 +959,27 @@
             timeSpentSeconds: seconds,
             description: commentText,
             summary: summary,
+            workReference: workReference || undefined,
           });
         }
       }
-      serverWorklogsByDate = combined;
+      // Respons ini hanya berwenang atas rentang yang diminta. Tanggal di
+      // luar itu dipertahankan apa adanya — kalau tidak, worklog yang
+      // dipindahkan ke luar jendela akan lenyap begitu reconcile mendarat,
+      // seolah pemindahannya gagal padahal Jira sudah menerimanya.
+      const outside: Record<string, WorklogDay> = {};
+      for (const [date, day] of Object.entries(serverWorklogsByDate)) {
+        if (date < fetchStartDate || date > fetchEndDate) outside[date] = day;
+      }
+      const merged = { ...outside, ...combined };
+      serverWorklogsByDate = merged;
       // Persist in the background; failures are swallowed inside writeCache.
       void writeCache(
         cacheArgs.email,
         cacheArgs.baseUrl,
         cacheArgs.startDate,
         cacheArgs.endDate,
-        combined,
+        merged,
       );
     } catch (err) {
       // If we already painted from cache, keep showing it and surface a
@@ -948,7 +1007,7 @@
    * any individual load fall back to safe defaults.
    */
   async function initWorkspace(): Promise<void> {
-    const [settingsP, isCloudP, credsP, recentsP, autoSchedP, processedP, auditP] =
+    const [settingsP, isCloudP, credsP, recentsP, autoSchedP, processedP, auditP, breakP] =
       await Promise.allSettled([
         loadWorkspaceSettings(),
         loadIsCloud(),
@@ -957,6 +1016,7 @@
         loadAutoScheduleConfig(),
         loadProcessedSlots(),
         loadAuditLog(),
+        loadBreakConfig(),
       ]);
 
     if (autoSchedP.status === "fulfilled") {
@@ -967,6 +1027,9 @@
     }
     if (auditP.status === "fulfilled") {
       auditLog = auditP.value;
+    }
+    if (breakP.status === "fulfilled") {
+      breakConfig = breakP.value;
     }
 
     if (settingsP.status === "fulfilled") {
@@ -1129,6 +1192,8 @@
     date: string;
     description: string;
     started?: string;
+    /** Diteruskan ke cache recent supaya daftarnya bisa menampilkan ikon tipe. */
+    issueType?: string;
   }): Promise<void> {
     // Edit terhadap draf jadwal (QuickLogCard mode lokal): perbarui draf di
     // staging saja — belum ada yang menyentuh Jira sampai "Submit changes".
@@ -1179,6 +1244,7 @@
     const nextRecent = upsertRecentIssue(recentIssues, {
       issueKey: e.issueKey,
       summary: e.summary,
+      issueType: e.issueType,
     });
     recentIssues = nextRecent;
     try {
@@ -1213,10 +1279,13 @@
     summary: string;
     hours: number;
     date: string;
+    /** Diteruskan ke cache recent supaya daftarnya bisa menampilkan ikon tipe. */
+    issueType?: string;
   }): Promise<void> {
     const next = upsertRecentIssue(recentIssues, {
       issueKey: e.issueKey,
       summary: e.summary,
+      issueType: e.issueType,
     });
     recentIssues = next;
     try {
@@ -1436,6 +1505,7 @@
         onWorklogDelete={handleWorklogDelete}
         onAddWorklog={handleAddWorklog}
         onWorklogReschedule={handleWorklogReschedule}
+        {breakConfig}
       />
     </div>
   </div>
@@ -1448,7 +1518,7 @@
   <div
     class="pending-bar glass glass-overlay"
     role="region"
-    aria-label="Perubahan kalender belum disimpan"
+    aria-label={t("staged.regionLabel")}
   >
     <div class="pending-info">
       <svg
@@ -1478,7 +1548,7 @@
         onclick={discardPendingChanges}
         disabled={submittingChanges}
       >
-        Discard
+        {t("staged.discard")}
       </button>
       <button
         type="button"
@@ -1489,9 +1559,9 @@
       >
         {#if submittingChanges}
           <span class="spinner" aria-hidden="true"></span>
-          <span>Menyimpan…</span>
+          <span>{t("staged.saving")}</span>
         {:else}
-          <span>Submit changes ({pendingCount})</span>
+          <span>{t("staged.submit", { n: pendingCount })}</span>
         {/if}
       </button>
     </div>
@@ -1514,7 +1584,7 @@
       class="quick-log-popover"
       role="dialog"
       aria-modal="true"
-      aria-label="Log work"
+      aria-label={t("misc.logWork")}
       tabindex="-1"
       onclick={(e) => e.stopPropagation()}
       onkeydown={(e) => e.stopPropagation()}
@@ -1529,6 +1599,7 @@
         apiToken={credentials.apiToken}
         {isCloud}
         editWorklog={editingWorklog}
+        {breakConfig}
         localEdit={!!editingWorklog && isDraftId(editingWorklog.id)}
         initialStartedTime={prefillStartedTime}
         onWorklogSubmitted={handleWorklogSubmitted}
@@ -1550,6 +1621,7 @@
   onSettingsSaved={handleSettingsSaved}
   onCredentialsSaved={handleCredentialsSaved}
   onAutoScheduleSaved={handleAutoScheduleSaved}
+  onBreakSaved={(next) => (breakConfig = next)}
 />
 
 <!-- Audit log overlay -->
@@ -1615,7 +1687,14 @@
   .quick-log-popover {
     position: relative;
     width: 100%;
-    max-width: 28rem;
+    /* 28rem membuat ringkasan issue terpotong ("Automation JSM untuk Create
+       EPIC & TASK…") padahal ruang layar masih lega. Lebar ini juga yang
+       memungkinkan QuickLogCard memakai dua kolom.
+       Dinaikkan dari 52rem: daftar issue punya kolom chevron, key, badge, dan
+       aksi yang lebarnya tetap, jadi setiap rem tambahan langsung jatuh ke
+       ringkasan — bagian yang justru dibaca. Ini batas atas, bukan lebar
+       tetap; popover tetap menyusut mengikuti jendela. */
+    max-width: 64rem;
     animation: popover-pop-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
@@ -1657,7 +1736,7 @@
     padding: 0.625rem 0.75rem 0.625rem 1rem;
     border-radius: 999px;
     border: 1px solid var(--glass-border);
-    box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 18px 40px -12px rgb(var(--shadow-rgb) / calc(0.6 * var(--shadow-strength)));
     animation: pending-bar-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
@@ -1667,20 +1746,20 @@
     gap: 0.5rem;
     font-size: 0.875rem;
     font-weight: 500;
-    color: #f1f5f9;
+    color: var(--text-primary);
     white-space: nowrap;
   }
 
   .pending-icon {
     width: 1.125rem;
     height: 1.125rem;
-    color: #fcd34d;
+    color: var(--text-warning);
     flex-shrink: 0;
   }
 
   .pending-error {
     font-size: 0.8125rem;
-    color: #fca5a5;
+    color: var(--text-danger);
     max-width: 16rem;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1715,16 +1794,16 @@
   .pending-discard {
     border: 1px solid var(--glass-border);
     background: var(--glass-bg-strong);
-    color: rgba(255, 255, 255, 0.85);
+    color: rgb(var(--fg-rgb) / 0.85);
   }
 
   .pending-discard:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.12);
+    background: rgb(var(--fg-rgb) / 0.12);
   }
 
   .pending-submit {
     border: none;
-    color: #fff;
+    color: var(--text-on-accent);
     background: linear-gradient(
       135deg,
       var(--accent-from) 0%,
@@ -1752,8 +1831,8 @@
   .pending-submit .spinner {
     width: 0.875rem;
     height: 0.875rem;
-    border: 2px solid rgba(255, 255, 255, 0.35);
-    border-top-color: #fff;
+    border: 2px solid rgb(var(--fg-rgb) / 0.35);
+    border-top-color: var(--text-on-accent);
     border-radius: 50%;
     animation: spin 0.6s linear infinite;
   }

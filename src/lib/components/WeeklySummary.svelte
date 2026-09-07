@@ -17,6 +17,7 @@
    * Saat data masih loading, render skeleton.
    */
 
+  import { t } from "../stores/i18n.svelte";
   import AnimatedCounter from "./AnimatedCounter.svelte";
   import type { WorklogDay } from "../stores/heatmapStore";
   import { clamp01 } from "../stores/settingsStore";
@@ -157,7 +158,7 @@
 
   // Heading per mode (English, sesuai permintaan).
   let title = $derived(
-    mode === "day" ? "Day" : mode === "week" ? "Week" : "Month",
+    mode === "day" ? t("calendar.day") : mode === "week" ? t("calendar.week") : t("calendar.month"),
   );
 </script>
 
@@ -171,7 +172,7 @@
       <div class="skeleton skeleton-counter"></div>
     </div>
     <div class="skeleton skeleton-bar"></div>
-    <span class="sr-only">Loading summary</span>
+    <span class="sr-only">{t("misc.loadingSummary")}</span>
   {:else}
     <!-- Compact single row: title + counter/target + (optional) reached badge,
          with a thin progress bar beneath — keeps the card short so the calendar
@@ -184,7 +185,7 @@
       </span>
       <span class="target">/ {totalTarget.toFixed(1)} target</span>
       {#if targetReached}
-        <span class="target-reached" aria-live="polite">🎯 Target reached!</span>
+        <span class="target-reached" aria-live="polite">🎯 {t("misc.targetReached")}</span>
       {/if}
     </div>
 
@@ -227,7 +228,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgb(var(--fg-rgb) / 0.45);
   }
 
   .target-reached {
@@ -240,7 +241,7 @@
     border-radius: 999px;
     background: rgba(34, 197, 94, 0.18);
     border: 1px solid rgba(34, 197, 94, 0.4);
-    color: #bbf7d0;
+    color: var(--text-success);
     font-size: 0.6875rem;
     font-weight: 600;
     letter-spacing: 0.02em;
@@ -255,20 +256,20 @@
     font-size: 1.125rem;
     font-weight: 800;
     line-height: 1;
-    color: #ffffff;
+    color: var(--text-strong);
     font-variant-numeric: tabular-nums;
   }
 
   .counter-unit {
     font-size: 0.75rem;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgb(var(--fg-rgb) / 0.7);
   }
 
   .target {
     font-size: 0.8125rem;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgb(var(--fg-rgb) / 0.45);
     font-variant-numeric: tabular-nums;
   }
 
@@ -277,7 +278,7 @@
   .progress-track {
     position: relative;
     width: 100%;
-    height: 0.25rem;
+    height: 0.625rem;
     border-radius: 999px;
     background: var(--glass-bg-strong);
     border: 1px solid var(--glass-border);
@@ -285,8 +286,10 @@
   }
 
   .progress-fill {
+    position: relative;
     height: 100%;
     border-radius: 999px;
+    overflow: hidden;
     background: linear-gradient(
       90deg,
       var(--accent-from) 0%,
@@ -294,6 +297,38 @@
     );
     box-shadow: 0 0 12px rgba(99, 102, 241, 0.45);
     transition: width 400ms cubic-bezier(0.22, 1, 0.36, 1);
+    /* Tumbuh dari kiri saat pertama dirender. Memakai transform, bukan
+       width, supaya tidak bertabrakan dengan `width` inline yang membawa
+       nilai persentase sesungguhnya. */
+    transform-origin: left center;
+    animation: progress-grow 720ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* Kilau yang menyapu isian — memberi kesan "sedang berjalan" tanpa
+     mengubah angka apa pun. Dibatasi ke dalam isian oleh `overflow: hidden`
+     di atas, jadi ia berhenti tepat di ujung progres. */
+  .progress-fill::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgb(var(--fg-rgb) / 0.38) 50%,
+      transparent 100%
+    );
+    animation: progress-sheen 2.6s ease-in-out infinite;
+  }
+
+  @keyframes progress-grow {
+    from { transform: scaleX(0); }
+    to   { transform: scaleX(1); }
+  }
+
+  @keyframes progress-sheen {
+    from { transform: translateX(-100%); }
+    /* Jeda di ujung supaya kilaunya tidak terasa gelisah. */
+    60%, to { transform: translateX(100%); }
   }
 
   .progress-fill.full {
@@ -304,6 +339,15 @@
       #8b5cf6 100%
     );
     box-shadow: 0 0 16px rgba(52, 211, 153, 0.4);
+    animation:
+      progress-grow 720ms cubic-bezier(0.22, 1, 0.36, 1) both,
+      progress-glow 2.8s ease-in-out infinite;
+  }
+
+  /* Target tercapai: denyut halus pada glow-nya sebagai perayaan kecil. */
+  @keyframes progress-glow {
+    0%, 100% { box-shadow: 0 0 16px rgba(52, 211, 153, 0.4); }
+    50%      { box-shadow: 0 0 26px rgba(52, 211, 153, 0.65); }
   }
 
   /* --- Skeleton loader --- */
@@ -312,7 +356,7 @@
     position: relative;
     overflow: hidden;
     border-radius: 0.5rem;
-    background: rgba(255, 255, 255, 0.06);
+    background: rgb(var(--fg-rgb) / 0.06);
   }
 
   .skeleton::after {
@@ -322,7 +366,7 @@
     background: linear-gradient(
       90deg,
       transparent 0%,
-      rgba(255, 255, 255, 0.08) 50%,
+      rgb(var(--fg-rgb) / 0.08) 50%,
       transparent 100%
     );
     transform: translateX(-100%);
@@ -358,7 +402,14 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .progress-fill { transition: none; }
+    /* Bar tetap tampil penuh pada lebar akhirnya — hanya geraknya yang
+       dimatikan, bukan informasinya. */
+    .progress-fill {
+      transition: none;
+      animation: none;
+      transform: none;
+    }
+    .progress-fill::after { animation: none; opacity: 0; }
     .skeleton::after { animation: none; }
   }
 </style>

@@ -13,6 +13,7 @@
    * same render pass).
    */
 
+  import { t } from "../stores/i18n.svelte";
   import { tick } from "svelte";
   import { initialFor } from "../stores/quickLogReducer";
 
@@ -198,7 +199,7 @@
       class="menu glass"
       role="menu"
       aria-orientation="vertical"
-      aria-label="User menu"
+      aria-label={t("misc.userMenu")}
       tabindex="-1"
       onkeydown={onMenuKeyDown}
     >
@@ -278,9 +279,9 @@
     align-items: center;
     justify-content: center;
     border-radius: 9999px;
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    border: 1px solid rgb(var(--fg-rgb) / 0.18);
     background: linear-gradient(135deg, var(--accent-from) 0%, var(--accent-to) 100%);
-    color: #ffffff;
+    color: var(--text-on-accent);
     cursor: pointer;
     padding: 0;
     box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
@@ -293,7 +294,7 @@
   .avatar-button:hover {
     transform: translateY(-1px);
     box-shadow: 0 6px 18px rgba(99, 102, 241, 0.45);
-    border-color: rgba(255, 255, 255, 0.28);
+    border-color: rgb(var(--fg-rgb) / 0.28);
   }
 
   .avatar-button:active {
@@ -304,7 +305,7 @@
   .avatar-button:focus-visible {
     outline: none;
     box-shadow: var(--focus-ring), 0 4px 14px rgba(99, 102, 241, 0.35);
-    border-color: rgba(255, 255, 255, 0.4);
+    border-color: rgb(var(--fg-rgb) / 0.4);
   }
 
   .avatar-initial {
@@ -334,15 +335,15 @@
     background:
       linear-gradient(
         180deg,
-        rgba(15, 23, 42, 0.94) 0%,
-        rgba(15, 23, 42, 0.92) 100%
+        rgb(var(--surface-rgb) / 0.94) 0%,
+        rgb(var(--surface-rgb) / 0.92) 100%
       );
     backdrop-filter: blur(28px) saturate(1.2);
     -webkit-backdrop-filter: blur(28px) saturate(1.2);
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    border: 1px solid rgb(var(--fg-rgb) / 0.14);
     box-shadow:
-      0 20px 40px -12px rgba(0, 0, 0, 0.65),
-      0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+      0 20px 40px -12px rgb(var(--shadow-rgb) / calc(0.65 * var(--shadow-strength))),
+      0 0 0 1px rgb(var(--fg-rgb) / 0.04) inset;
   }
 
   .menu-header {
@@ -357,7 +358,7 @@
     margin: 0;
     font-size: 0.875rem;
     font-weight: 600;
-    color: #f8fafc;
+    color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -375,7 +376,7 @@
   .menu-divider {
     height: 1px;
     margin: 0.375rem 0;
-    background: rgba(255, 255, 255, 0.10);
+    background: rgb(var(--fg-rgb) / 0.10);
   }
 
   .menu-item {
@@ -387,7 +388,7 @@
     border-radius: 0.5rem;
     border: 1px solid transparent;
     background: transparent;
-    color: rgba(255, 255, 255, 0.92);
+    color: rgb(var(--fg-rgb) / 0.92);
     font: inherit;
     font-size: 0.875rem;
     text-align: left;
@@ -400,8 +401,8 @@
   }
 
   .menu-item:hover {
-    background: rgba(255, 255, 255, 0.07);
-    border-color: rgba(255, 255, 255, 0.15);
+    background: rgb(var(--fg-rgb) / 0.07);
+    border-color: rgb(var(--fg-rgb) / 0.15);
   }
 
   /* Focus ring distinct from hover (R11.4). */
@@ -415,11 +416,11 @@
     width: 1rem;
     height: 1rem;
     flex-shrink: 0;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgb(var(--fg-rgb) / 0.7);
   }
 
   .menu-item:hover .menu-icon,
   .menu-item:focus-visible .menu-icon {
-    color: #c7d2fe;
+    color: var(--text-accent-strong);
   }
 </style>

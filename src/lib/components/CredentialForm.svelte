@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { tick } from "svelte";
+  import { t } from "../stores/i18n.svelte";
   import {
     isFormSubmittable,
     validateUrl,
@@ -35,6 +37,30 @@
     apiToken = credentials.apiToken;
   });
 
+  /**
+   * Arahkan fokus saat form pertama muncul.
+   *
+   * Tanpa ini fokus tertinggal di `<body>`, sehingga menekan Enter tidak
+   * melakukan apa-apa — bahkan ketika seluruh kolom sudah terisi dari
+   * kredensial tersimpan. Kalau sudah lengkap, tombol Login yang difokus
+   * agar Enter langsung mengirim; kalau belum, kolom kosong pertama yang
+   * difokus agar user bisa langsung mengetik.
+   */
+  let initialFocusDone = false;
+  $effect(() => {
+    if (initialFocusDone) return;
+    // Baca state agar efek berjalan lagi setelah prop kredensial masuk.
+    const ready = baseUrl !== undefined && email !== undefined;
+    if (!ready) return;
+    initialFocusDone = true;
+    void tick().then(() => {
+      if (!baseUrl.trim()) urlInput?.focus();
+      else if (!email.trim()) emailInput?.focus();
+      else if (!apiToken.trim()) tokenInput?.focus();
+      else submitBtn?.focus();
+    });
+  });
+
   // Clear inline errors when user edits the respective field
   $effect(() => {
     if (baseUrl) urlError = null;
@@ -42,6 +68,12 @@
   $effect(() => {
     if (email) emailError = null;
   });
+
+  // Ref untuk pengaturan fokus awal.
+  let urlInput: HTMLInputElement | null = $state(null);
+  let emailInput: HTMLInputElement | null = $state(null);
+  let tokenInput: HTMLInputElement | null = $state(null);
+  let submitBtn: HTMLButtonElement | null = $state(null);
 
   let formCreds = $derived<Credentials>({ baseUrl, email, apiToken });
   let canSubmit = $derived(isFormSubmittable(formCreds) && !isLoading);
@@ -70,7 +102,7 @@
         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
         <circle cx="12" cy="7" r="4" />
       </svg>
-      <span>Welcome back, <strong>{welcomeEmail}</strong></span>
+      <span>{t("login.welcomeBack")} <strong>{welcomeEmail}</strong></span>
     </div>
   {/if}
 
@@ -97,13 +129,14 @@
     </div>
   {/if}
 
-  <form onsubmit={handleSubmit} novalidate aria-label="Login credentials">
+  <form onsubmit={handleSubmit} novalidate aria-label={t("login.formLabel")}>
     <!-- Jira URL field -->
     <div class="form-field">
-      <label for="jira-url">Jira URL</label>
+      <label for="jira-url">{t("login.jiraUrl")}</label>
       <input
         id="jira-url"
         type="url"
+        bind:this={urlInput}
         bind:value={baseUrl}
         placeholder="https://company.atlassian.net"
         autocomplete="url"
@@ -118,12 +151,13 @@
 
     <!-- Email field -->
     <div class="form-field">
-      <label for="jira-email">Email</label>
+      <label for="jira-email">{t("login.email")}</label>
       <input
         id="jira-email"
         type="email"
+        bind:this={emailInput}
         bind:value={email}
-        placeholder="user@company.com"
+        placeholder={t("settings.emailPlaceholder")}
         autocomplete="email"
         disabled={isLoading}
         aria-invalid={emailError ? "true" : undefined}
@@ -136,12 +170,13 @@
 
     <!-- API Token field -->
     <div class="form-field">
-      <label for="jira-token">API Token</label>
+      <label for="jira-token">{t("login.apiToken")}</label>
       <input
         id="jira-token"
         type="password"
+        bind:this={tokenInput}
         bind:value={apiToken}
-        placeholder="Enter your API token"
+        placeholder={t("login.tokenPlaceholder")}
         autocomplete="current-password"
         disabled={isLoading}
       />
@@ -156,12 +191,13 @@
           onchange={(e) => onRememberTokenChange(e.currentTarget.checked)}
           disabled={isLoading}
         />
-        <span>Remember token</span>
+        <span>{t("login.rememberToken")}</span>
       </label>
     </div>
 
     <!-- Submit button -->
     <button
+      bind:this={submitBtn}
       type="submit"
       class="submit-btn"
       disabled={!canSubmit}
@@ -169,9 +205,9 @@
     >
       {#if isLoading}
         <span class="loading-spinner" aria-hidden="true"></span>
-        <span>Authenticating...</span>
+        <span>{t("login.authenticating")}</span>
       {:else}
-        <span>Login</span>
+        <span>{t("login.submit")}</span>
       {/if}
     </button>
   </form>
@@ -192,10 +228,10 @@
       var(--surface-overlay);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgb(var(--fg-rgb) / 0.1);
     box-shadow:
-      0 25px 50px -12px rgba(0, 0, 0, 0.5),
-      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      0 25px 50px -12px rgb(var(--shadow-rgb) / calc(0.5 * var(--shadow-strength))),
+      inset 0 1px 0 rgb(var(--fg-rgb) / 0.1);
   }
 
   /* Welcome banner */
@@ -208,7 +244,7 @@
     border-radius: 0.75rem;
     background: rgba(99, 102, 241, 0.15);
     border: 1px solid rgba(99, 102, 241, 0.3);
-    color: #c7d2fe;
+    color: var(--text-accent-strong);
     font-size: 0.875rem;
   }
 
@@ -216,11 +252,11 @@
     width: 1.25rem;
     height: 1.25rem;
     flex-shrink: 0;
-    color: #a5b4fc;
+    color: var(--text-accent);
   }
 
   .welcome-banner strong {
-    color: #e0e7ff;
+    color: var(--text-accent-strong);
   }
 
   /* Error banner */
@@ -245,19 +281,19 @@
   .error-auth {
     background: rgba(239, 68, 68, 0.15);
     border: 1px solid rgba(239, 68, 68, 0.3);
-    color: #fca5a5;
+    color: var(--text-danger);
   }
 
   .error-network {
     background: rgba(245, 158, 11, 0.15);
     border: 1px solid rgba(245, 158, 11, 0.3);
-    color: #fcd34d;
+    color: var(--text-warning);
   }
 
   .error-timeout {
     background: rgba(245, 158, 11, 0.15);
     border: 1px solid rgba(245, 158, 11, 0.3);
-    color: #fcd34d;
+    color: var(--text-warning);
   }
 
   .error-unknown {
@@ -282,7 +318,7 @@
   .form-field label {
     font-size: 0.8125rem;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.8);
+    color: rgb(var(--fg-rgb) / 0.8);
     letter-spacing: 0.025em;
   }
 
@@ -290,22 +326,22 @@
     width: 100%;
     padding: 0.75rem 1rem;
     border-radius: 0.625rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.06);
-    color: #f1f5f9;
+    border: 1px solid rgb(var(--fg-rgb) / 0.12);
+    background: rgb(var(--fg-rgb) / 0.06);
+    color: var(--text-primary);
     font-size: 0.9375rem;
     transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
     outline: none;
   }
 
   .form-field input::placeholder {
-    color: rgba(255, 255, 255, 0.35);
+    color: rgb(var(--fg-rgb) / 0.35);
   }
 
   .form-field input:focus {
     border-color: rgba(99, 102, 241, 0.6);
     box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
-    background: rgba(255, 255, 255, 0.08);
+    background: rgb(var(--fg-rgb) / 0.08);
   }
 
   .form-field input:disabled {
@@ -320,7 +356,7 @@
 
   .field-error {
     font-size: 0.75rem;
-    color: #fca5a5;
+    color: var(--text-danger);
     margin: 0;
   }
 
@@ -334,7 +370,7 @@
     align-items: center;
     gap: 0.5rem;
     font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgb(var(--fg-rgb) / 0.7);
     cursor: pointer;
   }
 
@@ -389,7 +425,7 @@
   .loading-spinner {
     width: 1rem;
     height: 1rem;
-    border: 2px solid rgba(255, 255, 255, 0.3);
+    border: 2px solid rgb(var(--fg-rgb) / 0.3);
     border-top-color: white;
     border-radius: 50%;
     animation: spin 0.6s linear infinite;

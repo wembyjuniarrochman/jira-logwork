@@ -14,6 +14,7 @@
    * inside the header.
    */
 
+  import { t } from "../stores/i18n.svelte";
   import UserAvatarDropdown from "./UserAvatarDropdown.svelte";
   import LanguageToggle from "./LanguageToggle.svelte";
 
@@ -88,8 +89,8 @@
     <button
       type="button"
       class="header-icon-btn"
-      aria-label="Buka audit log"
-      title="Audit log"
+      aria-label={t("header.openAuditLog")}
+      title={t("header.auditLog")}
       onclick={onOpenAuditLog}
     >
       <svg
@@ -172,8 +173,8 @@
   }
 
   .logo-button:hover {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.12);
+    background: rgb(var(--fg-rgb) / 0.05);
+    border-color: rgb(var(--fg-rgb) / 0.12);
   }
 
   /* Focus ring distinct from hover (R11.4). */
@@ -185,14 +186,14 @@
   .app-logo {
     width: 1.5rem;
     height: 1.5rem;
-    color: #a5b4fc;
+    color: var(--text-accent);
     flex-shrink: 0;
   }
 
   .app-title {
     font-size: 1rem;
     font-weight: 700;
-    color: #f1f5f9;
+    color: var(--text-primary);
     letter-spacing: -0.01em;
     white-space: nowrap;
     overflow: hidden;
@@ -210,7 +211,7 @@
     border-radius: 0.625rem;
     border: 1px solid transparent;
     background: transparent;
-    color: rgba(255, 255, 255, 0.75);
+    color: rgb(var(--fg-rgb) / 0.75);
     cursor: pointer;
     transition:
       background-color 200ms ease-out,
@@ -221,9 +222,9 @@
   }
 
   .header-icon-btn:hover {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.12);
-    color: #f1f5f9;
+    background: rgb(var(--fg-rgb) / 0.06);
+    border-color: rgb(var(--fg-rgb) / 0.12);
+    color: var(--text-primary);
   }
 
   .header-icon-btn:focus-visible {
@@ -241,7 +242,7 @@
   .current-date {
     font-size: 0.875rem;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.78);
+    color: rgb(var(--fg-rgb) / 0.78);
     letter-spacing: 0.01em;
     white-space: nowrap;
     overflow: hidden;

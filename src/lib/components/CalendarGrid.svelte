@@ -20,6 +20,12 @@
    *   - "month" → grid kalender bulanan 6×7 dengan total jam per hari
    */
 
+  import {
+    breakRangeFor,
+    layoutAroundBreak,
+    DEFAULT_BREAK_CONFIG,
+    type BreakConfig,
+  } from "../stores/breakStore";
   import type { WorklogDay, WorklogEntry } from "../stores/worklogStore";
   import {
     getHoliday,
@@ -31,6 +37,8 @@
   type ViewMode = "day" | "week" | "month" | "list";
 
   interface Props {
+    /** Jam istirahat untuk pita di timeline Hari/Minggu. */
+    breakConfig?: BreakConfig;
     worklogsByDate: Record<string, WorklogDay>;
     selectedDate: string | null;
     isLoading?: boolean;
@@ -86,6 +94,7 @@
   }
 
   let {
+    breakConfig = DEFAULT_BREAK_CONFIG,
     worklogsByDate,
     selectedDate,
     isLoading = false,
@@ -234,19 +243,26 @@
     // `icon` is an inline SVG `d` attribute drawn at 16×16 inside each chip.
     // Keeping the path data here avoids pulling in an icon library just for
     // four glyphs.
-    { value: "day", label: "Hari",   icon: "M12 2v4M12 18v4M2 12h4M18 12h4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10z" },
-    { value: "week",  label: "Minggu", icon: "M3 6h18M3 12h18M3 18h18M8 4v16M16 4v16" },
-    { value: "month", label: "Bulan",  icon: "M3 4h18v16H3zM3 10h18M8 2v4M16 2v4" },
+    //
+    // Day/Week/Month memakai bingkai yang sama dengan pembagian yang makin
+    // rapat — satu kolom, lalu kolom mingguan, lalu grid penuh. Urutan itu
+    // sendiri yang menyampaikan maknanya, dan bentuknya tetap terbaca di
+    // 16px. Ikon "Hari" sebelumnya berupa matahari dengan sinar yang panjang
+    // dan posisinya tidak konsisten, sehingga di ukuran sekecil ini lebih
+    // mirip tanda bintang dan tidak sekeluarga dengan tiga ikon lainnya.
+    { value: "day",   label: "Hari",   icon: "M4 4h16v16H4z M4 9h16 M9 12h6v5H9z" },
+    { value: "week",  label: "Minggu", icon: "M4 4h16v16H4z M4 9h16 M9.33 9v11 M14.67 9v11" },
+    { value: "month", label: "Bulan",  icon: "M4 4h16v16H4z M4 9h16 M4 14.5h16 M9.33 9v11 M14.67 9v11" },
     { value: "list",  label: "Daftar", icon: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" },
   ];
 
   /** Pilihan pengelompokan untuk mode Daftar. */
   const LIST_GROUP_OPTIONS: ReadonlyArray<{
     value: "date" | "issue";
-    label: string;
+    labelKey: string;
   }> = [
-    { value: "date", label: "Per tanggal" },
-    { value: "issue", label: "Per issue" },
+    { value: "date", labelKey: "calendar.groupByDate" },
+    { value: "issue", labelKey: "calendar.groupByIssue" },
   ];
 
   // ---------------------------------------------------------------------
@@ -341,7 +357,7 @@
    */
   function colorForHours(hours: number, base: number): string {
     if (!Number.isFinite(hours) || hours <= 0 || base <= 0) {
-      return "rgba(255, 255, 255, 0.05)";
+      return "rgb(var(--fg-rgb) / 0.05)";
     }
     const r = hours / base;
     if (r <= 1) {
@@ -791,17 +807,16 @@
   const MIN_BLOCK_PX = $derived(Math.max(16, HOUR_HEIGHT * 0.4)); // Scale minimum block size with hour height
 
   // --- Lunch break band (Day & Week timelines) -----------------------------
-  // 12:00–13:00 every day, extended to 13:30 on Fridays (getDay() === 5).
-  const BREAK_START_MIN = 12 * 60;
-  const BREAK_END_MIN = 13 * 60;
-  const BREAK_END_MIN_FRIDAY = 13 * 60 + 30;
+  // Jam istirahat kini berasal dari setelan, bukan konstanta: nilainya ikut
+  // memotong durasi worklog di QuickLogCard, jadi tidak lagi sekadar hiasan
+  // dan harus bisa diubah user tanpa build ulang.
 
   /** Absolute top/height for the break band on a given day's timeline. */
   function breakBandStyle(date: string): string {
-    const endMin =
-      parseYMD(date).getDay() === 5 ? BREAK_END_MIN_FRIDAY : BREAK_END_MIN;
-    const top = (BREAK_START_MIN / 60) * HOUR_HEIGHT;
-    const height = ((endMin - BREAK_START_MIN) / 60) * HOUR_HEIGHT;
+    const range = breakRangeFor(breakConfig, parseYMD(date).getDay());
+    if (!range) return "display: none;";
+    const top = (range.start / 60) * HOUR_HEIGHT;
+    const height = ((range.end - range.start) / 60) * HOUR_HEIGHT;
     return `top: ${top}px; height: ${height}px;`;
   }
 
@@ -811,9 +826,10 @@
     return d === 0 || d === 6;
   }
 
-  /** No lunch break on weekends. */
+  /** Ada jam istirahat pada tanggal ini? Akhir pekan dan konfigurasi
+   *  nonaktif ditangani `breakRangeFor`. */
   function hasBreak(date: string): boolean {
-    return !isWeekend(date);
+    return breakRangeFor(breakConfig, parseYMD(date).getDay()) !== null;
   }
 
   /**
@@ -896,28 +912,77 @@
 
   /** Live geometry for a block — uses the in-flight drag values for the block
    *  being dragged so the move/resize previews as it happens. */
-  function blockStyleFor(
-    entry: WorklogEntry,
-    layout?: BlockLayout,
-    gutter = 12,
-  ): string {
+  /**
+   * Segmen tampilan untuk sebuah entri pada tanggal tertentu.
+   *
+   * Biasanya satu segmen. Menjadi dua bila kerjanya melintasi jam istirahat:
+   * durasi tersimpan sudah tidak memuat jeda, jadi mengalirkannya melewati
+   * jeda membuat jam istirahat bersih tanpa mengubah luas yang tergambar.
+   *
+   * Saat sedang di-drag, selalu satu segmen — balok utuh yang mengikuti
+   * kursor jauh lebih mudah dibaca daripada balok yang pecah-menyatu.
+   */
+  function segmentsFor(entry: WorklogEntry, date: string) {
     const dragging = dayDrag && entry.id === dayDrag.entryId;
     const startMin = dragging ? dayDrag!.startMin : entryStartMin(entry);
     const durationMin = dragging ? dayDrag!.durationMin : entryDurationMin(entry);
-    const top = (startMin / 60) * HOUR_HEIGHT;
-    const height = Math.max(MIN_BLOCK_PX, (durationMin / 60) * HOUR_HEIGHT);
-    // Horizontal placement comes from the overlap layout so concurrent
-    // worklogs sit side-by-side instead of stacking. `gutter` is the side
-    // inset (smaller for the narrow week columns). Falls back to full width.
+    if (dragging || !date) {
+      return [{ start: startMin, end: startMin + durationMin }];
+    }
+    return layoutAroundBreak(
+      startMin,
+      durationMin,
+      breakRangeFor(breakConfig, parseYMD(date).getDay()),
+    );
+  }
+
+  /** Posisi absolut satu segmen di timeline. */
+  function segmentStyleFor(
+    seg: { start: number; end: number },
+    layout?: BlockLayout,
+    gutter = 12,
+  ): string {
+    const top = (seg.start / 60) * HOUR_HEIGHT;
+    const height = Math.max(
+      MIN_BLOCK_PX,
+      ((seg.end - seg.start) / 60) * HOUR_HEIGHT,
+    );
     let horizontal = `left: ${gutter}px; right: ${gutter}px;`;
     if (layout) {
       const leftFrac = layout.leftPct / 100;
       const widthFrac = layout.widthPct / 100;
-      const gap = widthFrac < 1 ? (gutter >= 8 ? 6 : 2) : 0; // between columns
+      const gap = widthFrac < 1 ? (gutter >= 8 ? 6 : 2) : 0;
       horizontal = `left: calc(${gutter}px + ${leftFrac} * (100% - ${gutter * 2}px)); width: calc(${widthFrac} * (100% - ${gutter * 2}px) - ${gap}px);`;
     }
     return `top: ${top}px; height: ${height}px; ${horizontal}`;
   }
+
+  /**
+   * Jam selesai yang sudah memperhitungkan jam istirahat.
+   *
+   * Menghitung mulai + durasi saja akan membuat 09:00 + 8 jam
+   * terbaca 17:00. Sejak istirahat menggeser jam selesai, angka itu keliru
+   * di mana pun rentang ditampilkan — bukan hanya di balok kalender, tapi
+   * juga di kartu detail, entri sel bulan, dan label pembaca layar.
+   */
+  function endLabelFor(entry: WorklogEntry, date: string): string {
+    const segs = segmentsFor(entry, date);
+    return minLabel(segs[segs.length - 1].end);
+  }
+
+  /** Jam untuk satu segmen — bukan total worklog. Dua segmen dari worklog
+   *  7 jam harus terbaca 3.00h dan 4.00h, bukan 7.00h dua kali. */
+  function segHours(seg: { start: number; end: number }): number {
+    return (seg.end - seg.start) / 60;
+  }
+
+  /** "HH:mm" dari menit sejak tengah malam. */
+  function minLabel(minutes: number): string {
+    const m = ((Math.round(minutes) % 1440) + 1440) % 1440;
+    return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  }
+
+
 
   function liveStartLabel(entry: WorklogEntry): string {
     const min =
@@ -934,16 +999,7 @@
     return min / 60;
   }
 
-  /** End-of-worklog clock label (start + duration), tracking any live drag. */
-  function liveEndLabel(entry: WorklogEntry): string {
-    const dragging = dayDrag && entry.id === dayDrag.entryId;
-    const startMin = dragging ? dayDrag!.startMin : entryStartMin(entry);
-    const durationMin = dragging ? dayDrag!.durationMin : entryDurationMin(entry);
-    const end = startMin + durationMin;
-    const hh = String(Math.floor(end / 60)).padStart(2, "0");
-    const mm = String(end % 60).padStart(2, "0");
-    return `${hh}:${mm}`;
-  }
+
 
   function onBlockPointerDown(
     event: PointerEvent,
@@ -1241,7 +1297,7 @@
 >
   <header class="cal-header">
     <div class="title-block">
-      <h2 id="calendar-grid-heading" class="heading">Calendar</h2>
+      <h2 id="calendar-grid-heading" class="heading">{t("calendar.title")}</h2>
       <p class="period-label" aria-live="polite">
         {#if mode === "day"}
           {dayLabel}
@@ -1258,7 +1314,7 @@
       <div
         class="mode-switch"
         role="radiogroup"
-        aria-label="Mode tampilan kalender"
+        aria-label={t("calendar.viewMode")}
       >
         {#each VIEW_OPTIONS as opt (opt.value)}
           {@const checked = mode === opt.value}
@@ -1325,7 +1381,7 @@
 
   <!-- Grid body -->
   {#if mode === "list"}
-    <div class="groupby-row" role="radiogroup" aria-label="Kelompokkan daftar">
+    <div class="groupby-row" role="radiogroup" aria-label={t("calendar.groupBy")}>
       {#each LIST_GROUP_OPTIONS as opt (opt.value)}
         {@const checked = listGroupBy === opt.value}
         <button
@@ -1336,7 +1392,7 @@
           class:selected={checked}
           onclick={() => (listGroupBy = opt.value)}
         >
-          {opt.label}
+          {t(opt.labelKey)}
         </button>
       {/each}
     </div>
@@ -1374,7 +1430,7 @@
                   <span class="issue-group-summary">{g.summary || "—"}</span>
                 </span>
                 <span class="list-group-count">
-                  {g.items.length} entri
+                  {g.items.length} {t("calendar.entries")}
                 </span>
               </span>
               <span class="list-group-hours">
@@ -1420,7 +1476,7 @@
               <span class="list-group-meta">
                 <span class="list-group-date">{formatLocaleDate(g.date)}</span>
                 <span class="list-group-count">
-                  {g.entries.length} {g.entries.length === 1 ? "entri" : "entri"}
+                  {g.entries.length} {t("calendar.entries")}
                 </span>
               </span>
               <span class="list-group-hours">
@@ -1495,19 +1551,23 @@
             {#each entries as entry, idx (entry.id ?? `${entry.issueKey}-${idx}`)}
               {@const isHoliday = !!dayCell.holidayName || entry.description.toLowerCase().includes('holiday') || entry.issueKey.toLowerCase().includes('holiday')}
               {@const canDrag = dayEditable && !!entry.id}
+              {@const segs = segmentsFor(entry, dayCell.date)}
+              {#each segs as seg, segIdx (segIdx)}
               <div
                 class="worklog-block"
                 class:holiday={isHoliday}
                 class:default={!isHoliday}
                 class:pending={!!entry.pending}
+                class:seg-top={segs.length > 1 && segIdx === 0}
+                class:seg-bottom={segs.length > 1 && segIdx === segs.length - 1}
                 class:draggable={canDrag}
                 class:dragging={!!dayDrag && dayDrag.entryId === entry.id}
-                class:compact={liveHours(entry) < 2}
-                class:tiny={liveHours(entry) < 0.75}
+                class:compact={segHours(seg) < 2}
+                class:tiny={segHours(seg) < 0.75}
                 role="button"
                 tabindex={canDrag ? 0 : -1}
-                aria-label={`${entry.issueKey} ${liveStartLabel(entry)}–${liveEndLabel(entry)}, ${liveHours(entry).toFixed(2)} jam`}
-                style={blockStyleFor(entry, dayLayout[idx])}
+                aria-label={`${entry.issueKey} ${liveStartLabel(entry)}–${endLabelFor(entry, dayCell.date)}, ${liveHours(entry).toFixed(2)} jam`}
+                style={segmentStyleFor(seg, dayLayout[idx], 12)}
                 title={canDrag
                   ? `${entry.issueKey}: ${entry.description}\n(Seret untuk pindah jam, tarik tepi bawah untuk ubah durasi)`
                   : `${entry.issueKey}: ${entry.description}`}
@@ -1517,8 +1577,8 @@
                 }}
               >
                 <div class="block-time">
-                  <span>{liveStartLabel(entry)}</span>
-                  <span class="block-time-end">{liveEndLabel(entry)}</span>
+                  <span>{minLabel(seg.start)}</span>
+                  <span class="block-time-end">{minLabel(seg.end)}</span>
                 </div>
                 <div class="block-content">
                   <div class="block-task-info">
@@ -1527,15 +1587,15 @@
                   </div>
                   <span class="block-desc">{entry.description || "—"}</span>
                 </div>
-                <div class="block-hours">{liveHours(entry).toFixed(2)}h</div>
-                {#if entry.id && (onWorklogEdit || onWorklogDelete)}
+                <div class="block-hours">{segHours(seg).toFixed(2)}h</div>
+                {#if entry.id && segIdx === segs.length - 1 && (onWorklogEdit || onWorklogDelete)}
                   <div class="block-actions">
                     {#if onWorklogEdit}
                       <button
                         type="button"
                         class="block-action"
-                        aria-label="Edit logwork"
-                        title="Edit"
+                        aria-label={t("calendar.editWorklog")}
+                        title={t("common.edit")}
                         onpointerdown={(e) => e.stopPropagation()}
                         onclick={(e) => {
                           e.stopPropagation();
@@ -1552,8 +1612,8 @@
                         <button
                           type="button"
                           class="block-action confirm-del"
-                          aria-label="Konfirmasi hapus logwork"
-                          title="Klik untuk menghapus"
+                          aria-label={t("calendar.confirmDelete")}
+                          title={t("calendar.clickToDelete")}
                           onpointerdown={(e) => e.stopPropagation()}
                           onclick={(e) => {
                             e.stopPropagation();
@@ -1563,13 +1623,13 @@
                           <svg viewBox="0 0 24 24" aria-hidden="true">
                             <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                           </svg>
-                          Hapus
+                          {t("common.delete")}
                         </button>
                         <button
                           type="button"
                           class="block-action cancel-del"
-                          aria-label="Batal hapus"
-                          title="Batal"
+                          aria-label={t("calendar.cancelDelete")}
+                          title={t("common.cancel")}
                           onpointerdown={(e) => e.stopPropagation()}
                           onclick={(e) => {
                             e.stopPropagation();
@@ -1585,8 +1645,8 @@
                         <button
                           type="button"
                           class="block-action delete"
-                          aria-label="Hapus logwork"
-                          title="Hapus"
+                          aria-label={t("calendar.deleteWorklog")}
+                          title={t("common.delete")}
                           onpointerdown={(e) => e.stopPropagation()}
                           onclick={(e) => {
                             e.stopPropagation();
@@ -1601,7 +1661,7 @@
                     {/if}
                   </div>
                 {/if}
-                {#if canDrag}
+                {#if canDrag && segIdx === segs.length - 1}
                   <div
                     class="block-resize-handle"
                     role="presentation"
@@ -1609,6 +1669,7 @@
                   ></div>
                 {/if}
               </div>
+              {/each}
             {/each}
           </div>
         </div>
@@ -1668,19 +1729,23 @@
                 {#each entries as entry, idx (entry.id ?? `${entry.issueKey}-${idx}`)}
                   {@const isHoliday = !!cell.holidayName || entry.description.toLowerCase().includes('holiday') || entry.issueKey.toLowerCase().includes('holiday')}
                   {@const canDrag = dayEditable && !!entry.id}
+                  {@const segs = segmentsFor(entry, cell.date)}
+                  {#each segs as seg, segIdx (segIdx)}
                   <div
                     class="worklog-block week-block"
                     class:holiday={isHoliday}
                     class:default={!isHoliday}
                     class:pending={!!entry.pending}
+                class:seg-top={segs.length > 1 && segIdx === 0}
+                class:seg-bottom={segs.length > 1 && segIdx === segs.length - 1}
                     class:draggable={canDrag}
                     class:dragging={!!dayDrag && dayDrag.entryId === entry.id}
-                    class:compact={liveHours(entry) < 2}
-                    class:tiny={liveHours(entry) < 0.75}
+                    class:compact={segHours(seg) < 2}
+                    class:tiny={segHours(seg) < 0.75}
                     role="button"
                     tabindex={canDrag ? 0 : -1}
-                    aria-label={`${entry.issueKey} ${liveStartLabel(entry)}–${liveEndLabel(entry)}, ${liveHours(entry).toFixed(2)} jam`}
-                    style={blockStyleFor(entry, layout[idx], 2)}
+                    aria-label={`${entry.issueKey} ${liveStartLabel(entry)}–${endLabelFor(entry, cell.date)}, ${liveHours(entry).toFixed(2)} jam`}
+                    style={segmentStyleFor(seg, layout[idx], 2)}
                     title={canDrag
                       ? `${entry.issueKey}: ${entry.description}\n(Seret untuk pindah hari/jam, tarik tepi bawah untuk durasi)`
                       : `${entry.issueKey}: ${entry.description}`}
@@ -1689,16 +1754,16 @@
                     onmouseleave={scheduleHide}
                   >
                     <div class="block-time">
-                      <span>{liveStartLabel(entry)}</span>
-                      <span class="block-time-end">{liveEndLabel(entry)}</span>
+                      <span>{minLabel(seg.start)}</span>
+                      <span class="block-time-end">{minLabel(seg.end)}</span>
                     </div>
                     <div class="block-content">
                       <span class="block-key">{shortKey(entry.issueKey)}</span>
                       <span class="block-summary">{entry.summary || "—"}</span>
                       <span class="block-desc">{entry.description || "—"}</span>
                     </div>
-                    <div class="block-hours">{liveHours(entry).toFixed(1)}h</div>
-                    {#if canDrag}
+                    <div class="block-hours">{segHours(seg).toFixed(1)}h</div>
+                    {#if canDrag && segIdx === segs.length - 1}
                       <div
                         class="block-resize-handle"
                         role="presentation"
@@ -1706,6 +1771,7 @@
                       ></div>
                     {/if}
                   </div>
+                  {/each}
                 {/each}
               </div>
             {/each}
@@ -1785,7 +1851,7 @@
                 type="button"
                 class="cell-add-btn"
                 aria-label={`Tambah logwork ${cell.date}`}
-                title="Tambah logwork"
+                title={t("calendar.addWorklog")}
                 onclick={(e) => {
                   e.stopPropagation();
                   onAddWorklog?.(cell.date);
@@ -1828,7 +1894,7 @@
                     ondragstart={(e) => handleEntryDragStart(e, entry, cell.date)}
                     ondragend={handleEntryDragEnd}
                   >
-                    <span class="cell-entry-time">{liveStartLabel(entry)} – {liveEndLabel(entry)}</span>
+                    <span class="cell-entry-time">{liveStartLabel(entry)} – {endLabelFor(entry, cell.date)}</span>
                     <span class="cell-entry-key">{shortKey(entry.issueKey)}</span>
                     <span class="cell-entry-hours">{entry.hours.toFixed(1)}h</span>
                   </div>
@@ -1882,7 +1948,7 @@
           <li class="hover-entry-detailed">
             <div class="hover-entry-top">
               <span class="hover-entry-time-pill">
-                {liveStartLabel(entry)} – {liveEndLabel(entry)}
+                {liveStartLabel(entry)} – {endLabelFor(entry, hover?.date ?? "")}
               </span>
               {#if url}
                 <a
@@ -1900,11 +1966,19 @@
             </div>
             <div class="hover-entry-body">
               <div class="hover-field">
-                <span class="hover-field-label">Task Name</span>
+                <span class="hover-field-label">{t("calendar.taskName")}</span>
                 <p class="hover-field-value">{entry.summary || "—"}</p>
               </div>
+              {#if entry.workReference}
+                <!-- Hanya dirender saat terisi: instance Jira tanpa field
+                     "Work Reference" tidak perlu melihat baris kosong. -->
+                <div class="hover-field">
+                  <span class="hover-field-label">{t("calendar.workReference")}</span>
+                  <p class="hover-field-value">{entry.workReference}</p>
+                </div>
+              {/if}
               <div class="hover-field">
-                <span class="hover-field-label">Comment</span>
+                <span class="hover-field-label">{t("calendar.comment")}</span>
                 <p class="hover-field-value">{entry.description || "—"}</p>
               </div>
               </div>
@@ -1925,7 +1999,7 @@
                     <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6" />
                     </svg>
-                    Ya, hapus
+                    {t("calendar.confirmYes")}
                   </button>
                   <button
                     type="button"
@@ -1935,7 +2009,7 @@
                       confirmDeleteId = null;
                     }}
                   >
-                    Batal
+                    {t("common.cancel")}
                   </button>
                 {:else}
                   <button
@@ -1950,7 +2024,7 @@
                     <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                     </svg>
-                    Edit
+                    {t("common.edit")}
                   </button>
                   <button
                     type="button"
@@ -1963,7 +2037,7 @@
                     <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6" />
                     </svg>
-                    Hapus
+                    {t("common.delete")}
                   </button>
                 {/if}
               </div>
@@ -2009,14 +2083,14 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgb(var(--fg-rgb) / 0.6);
   }
 
   .period-label {
     margin: 0;
     font-size: 1rem;
     font-weight: 600;
-    color: #f1f5f9;
+    color: var(--text-primary);
     text-transform: capitalize;
   }
 
@@ -2043,7 +2117,7 @@
     border-radius: 0.375rem;
     border: none;
     background: transparent;
-    color: rgba(255, 255, 255, 0.72);
+    color: rgb(var(--fg-rgb) / 0.72);
     font-size: 0.75rem;
     font-weight: 500;
     cursor: pointer;
@@ -2073,8 +2147,8 @@
   }
 
   .mode-chip:hover {
-    color: #f8fafc;
-    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+    background: rgb(var(--fg-rgb) / 0.06);
   }
 
   .mode-chip:focus-visible {
@@ -2104,7 +2178,7 @@
     border-radius: 0.375rem;
     border: 1px solid var(--glass-border);
     background: var(--glass-bg-strong);
-    color: rgba(255, 255, 255, 0.85);
+    color: rgb(var(--fg-rgb) / 0.85);
     cursor: pointer;
     font-weight: 500;
     transition:
@@ -2133,9 +2207,9 @@
 
   .nav-btn:hover,
   .today-btn:hover {
-    background: rgba(255, 255, 255, 0.12);
-    border-color: rgba(255, 255, 255, 0.2);
-    color: #f8fafc;
+    background: rgb(var(--fg-rgb) / 0.12);
+    border-color: rgb(var(--fg-rgb) / 0.2);
+    color: var(--text-primary);
   }
 
   .nav-btn:focus-visible,
@@ -2162,20 +2236,20 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgb(var(--fg-rgb) / 0.6);
   }
 
   .totals-value {
     font-size: 1rem;
     font-weight: 700;
-    color: #ffffff;
+    color: var(--text-strong);
     font-variant-numeric: tabular-nums;
   }
 
   .totals-unit {
     font-size: 0.75rem;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgb(var(--fg-rgb) / 0.7);
     margin-left: 0.125rem;
   }
 
@@ -2196,7 +2270,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgb(var(--fg-rgb) / 0.5);
     padding: 0.125rem 0;
   }
 
@@ -2216,9 +2290,9 @@
     min-height: 0;
     padding: 0.375rem;
     border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid rgb(var(--fg-rgb) / 0.06);
     background: var(--intensity-0);
-    color: #f1f5f9;
+    color: var(--text-primary);
     cursor: pointer;
     display: flex;
     flex-direction: column;
@@ -2249,7 +2323,7 @@
   .cell:hover {
     transform: translateY(-1px) scale(1.02);
     border-color: rgba(165, 180, 252, 0.35);
-    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.45);
+    box-shadow: 0 4px 14px rgb(var(--surface-rgb) / 0.45);
   }
 
   .cell:focus-visible {
@@ -2294,11 +2368,11 @@
   }
 
   .cell.holiday-national .cell-day:not(.today-pill) {
-    color: #fecaca;
+    color: var(--text-danger);
   }
 
   .cell.holiday-national .cell-holiday {
-    color: #fecaca;
+    color: var(--text-danger);
   }
 
   /* Company joint-holiday (cuti bersama perusahaan): amber/gold accent
@@ -2319,11 +2393,11 @@
   }
 
   .cell.holiday-company .cell-day:not(.today-pill) {
-    color: #fcd34d;
+    color: var(--text-warning);
   }
 
   .cell.holiday-company .cell-holiday {
-    color: #fde68a;
+    color: var(--text-warning);
   }
 
   /* Sunday cells (kolom paling kiri) tinted slightly red because they
@@ -2333,7 +2407,23 @@
    * a holiday (national or company) by the rules above. */
   .cell.weekend-sunday:not(.holiday) .cell-day:not(.today-pill),
   .cell.weekend-saturday:not(.holiday) .cell-day:not(.today-pill) {
-    color: #fda4af;
+    color: var(--text-danger);
+  }
+
+  /* Latar kolom weekend, menyamai tint yang sudah dipakai timeline Hari /
+   * Minggu (`.grid-container.weekend`) — sebelumnya hanya angkanya yang
+   * merah, sehingga Bulan terasa tidak sejalan dengan view lain.
+   *
+   * Sengaja lebih tipis dari tint hari libur (0.18) agar "Minggu biasa"
+   * tetap bisa dibedakan dari tanggal merah resmi, dan `background-color`
+   * dipakai — bukan `background-image` seperti aturan libur — supaya tidak
+   * saling menimpa dengan gradien intensitas jam di `.cell.has-hours`.
+   *
+   * Hari yang ada worklog-nya dikecualikan: warna data lebih penting
+   * daripada penanda dekoratif, dan angka tanggalnya toh sudah merah. */
+  .cell.weekend-sunday:not(.holiday):not(.has-hours),
+  .cell.weekend-saturday:not(.holiday):not(.has-hours) {
+    background-color: rgba(239, 68, 68, 0.11);
   }
 
   .cell-holiday {
@@ -2371,7 +2461,7 @@
   .cell-day {
     font-size: 0.75rem;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.92);
+    color: rgb(var(--fg-rgb) / 0.92);
     font-variant-numeric: tabular-nums;
   }
 
@@ -2390,13 +2480,13 @@
       var(--accent-from) 0%,
       var(--accent-to) 100%
     );
-    color: #ffffff;
+    color: var(--text-on-accent);
     box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
     text-shadow: none;
   }
 
   .cell.today .cell-day:not(.today-pill) {
-    color: #ffffff;
+    color: var(--text-strong);
     text-shadow: 0 0 8px rgba(99, 102, 241, 0.6);
   }
 
@@ -2413,9 +2503,9 @@
   .cell-hours-mini {
     font-size: 0.625rem;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgb(var(--fg-rgb) / 0.7);
     font-variant-numeric: tabular-nums;
-    background: rgba(0, 0, 0, 0.2);
+    background: rgb(var(--shadow-rgb) / calc(0.2 * var(--shadow-strength)));
     padding: 0.0625rem 0.25rem;
     border-radius: 0.25rem;
     flex-shrink: 0;
@@ -2424,7 +2514,7 @@
   .cell-unit {
     font-size: 0.625rem;
     margin-left: 0.0625rem;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgb(var(--fg-rgb) / 0.7);
   }
 
   /* "Add logwork" affordance — sits in the cell's top-right corner and only
@@ -2444,7 +2534,7 @@
     border: none;
     border-radius: 0.375rem;
     background: linear-gradient(135deg, var(--accent-from) 0%, var(--accent-to) 100%);
-    color: #fff;
+    color: var(--text-strong);
     cursor: pointer;
     opacity: 0;
     transform: scale(0.85);
@@ -2522,8 +2612,8 @@
     gap: 0.1875rem;
     padding: 0.0625rem 0.25rem;
     border-radius: 0.25rem;
-    background: rgba(15, 23, 42, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgb(var(--surface-rgb) / 0.4);
+    border: 1px solid rgb(var(--fg-rgb) / 0.06);
     font-size: 0.625rem;
     line-height: 1.1;
     color: rgba(241, 245, 249, 0.85);
@@ -2553,17 +2643,22 @@
     transform: scale(0.98);
   }
 
+  /* Jam memakai warna teks utama, bukan hijau emerald seperti sebelumnya:
+     sel yang ada worklog-nya juga berlatar hijau, jadi hijau di atas hijau
+     nyaris tak terbaca — terutama di tema terang. Token ini gelap di tema
+     terang dan terang di tema gelap, sehingga kontrasnya terjaga di
+     keduanya. */
   .cell-entry-time {
     font-size: 0.5625rem;
     font-weight: 600;
-    color: #10b981; /* Matching the Emerald Green from your timesheet ref */
+    color: var(--text-primary);
     white-space: nowrap;
     flex-shrink: 0;
   }
 
   .cell-entry-key {
     font-weight: 700;
-    color: #c7d2fe;
+    color: var(--text-accent-strong);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2573,7 +2668,8 @@
 
   .cell-entry-hours {
     font-size: 0.5625rem;
-    color: rgba(255, 255, 255, 0.5);
+    /* Dinaikkan dari 0.5: di atas sel berwarna, 50% terlalu pudar. */
+    color: rgb(var(--fg-rgb) / 0.75);
     flex-shrink: 0;
   }
 
@@ -2593,18 +2689,18 @@
     cursor: default;
     background: linear-gradient(
       90deg,
-      rgba(255, 255, 255, 0.04) 0%,
-      rgba(255, 255, 255, 0.12) 50%,
-      rgba(255, 255, 255, 0.04) 100%
+      rgb(var(--fg-rgb) / 0.04) 0%,
+      rgb(var(--fg-rgb) / 0.12) 50%,
+      rgb(var(--fg-rgb) / 0.04) 100%
     );
     background-size: 200% 100%;
     animation: shimmer 1.4s ease-in-out infinite;
-    border-color: rgba(255, 255, 255, 0.04);
+    border-color: rgb(var(--fg-rgb) / 0.04);
   }
 
   .skeleton-cell:hover {
     transform: none;
-    border-color: rgba(255, 255, 255, 0.04);
+    border-color: rgb(var(--fg-rgb) / 0.04);
   }
 
   @keyframes shimmer {
@@ -2625,17 +2721,21 @@
     animation: timeline-enter 400ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
-  .week-header {
+  /* Dua-kelas menggantikan `!important` yang dulu dipakai di sini: masalah
+     sebenarnya bukan butuh prioritas darurat, melainkan `.timeline-header`
+     dideklarasikan lebih bawah dengan spesifisitas sama. Menaikkan
+     spesifisitas menyelesaikannya tanpa merusak rantai cascade. */
+  .timeline-header.week-header {
     display: grid;
     grid-template-columns: 4.5rem repeat(7, 1fr);
-    padding: 0 !important; /* Override .timeline-header padding */
+    padding: 0;
     text-align: center;
     flex-shrink: 0;
   }
 
   .time-axis-spacer {
     border-right: 1px solid var(--glass-border);
-    background: rgba(255, 255, 255, 0.03);
+    background: rgb(var(--fg-rgb) / 0.03);
   }
 
   .timeline-day-col-header {
@@ -2643,7 +2743,7 @@
     flex-direction: column;
     padding: 0.25rem 0.25rem;
     border-right: 1px solid var(--glass-border);
-    background: rgba(255, 255, 255, 0.02);
+    background: rgb(var(--fg-rgb) / 0.02);
   }
 
   .timeline-day-col-header:last-child {
@@ -2659,14 +2759,14 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgb(var(--fg-rgb) / 0.4);
     margin-bottom: 0;
   }
 
   .day-number {
     font-size: 0.875rem;
     font-weight: 600;
-    color: #f1f5f9;
+    color: var(--text-primary);
   }
 
   .timeline-day-col-header.today .day-number {
@@ -2692,14 +2792,27 @@
     border-right: none;
   }
 
-  .week-block {
-    left: 2px;
-    right: 2px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    padding: 0.125rem 0.25rem;
-    gap: 0.0625rem;
+  /* Kolom grid didefinisikan ulang untuk view Minggu.
+   *
+   * `.worklog-block` memakai `auto 1fr auto` untuk tiga anaknya: waktu,
+   * konten, jam. Begitu `.block-time` disembunyikan di sini, ia berhenti
+   * menjadi grid item dan sisanya bergeser satu kolom — konten jatuh ke
+   * kolom `auto` yang bisa terjepit, sementara kolom melar `1fr` justru
+   * diberikan ke label jam. Itulah yang memotong issue key dan menyisakan
+   * ruang kosong lebar di antaranya.
+   *
+   * Dua kolom eksplisit mengembalikan porsinya: konten yang melar, jam
+   * selebar isinya.
+   *
+   * Ditulis dua-kelas dengan sengaja. `.week-block` sendirian punya
+   * spesifisitas sama dengan `.worklog-block` tetapi dideklarasikan lebih
+   * atas, sehingga SELURUH isinya — kolom grid, padding, dan gap — selama
+   * ini ditimpa diam-diam. Blok minggu jadi memakai padding dan jarak milik
+   * view Hari, yang terlalu longgar untuk kolom sesempit ini. */
+  .worklog-block.week-block {
+    grid-template-columns: 1fr auto;
+    padding: 0.125rem 0.375rem;
+    gap: 0.25rem;
   }
 
   /* Empty column area is clickable to log a new entry at that day + time. */
@@ -2736,13 +2849,11 @@
       100% 64px;
   }
 
-  .week-block .block-time {
-    min-width: unset;
-    font-size: 0.5625rem;
-    flex-direction: row;
-    gap: 0.125rem;
-  }
-
+  /* Kolom minggu sempit, dan posisi vertikal blok sudah menyampaikan
+     jamnya — label rentang di sini hanya memakan ruang yang dibutuhkan
+     issue key. Rentang lengkapnya tetap tersedia lewat `aria-label` blok
+     dan tooltip-nya, jadi tidak ada informasi yang hilang. */
+  .week-block .block-time,
   .week-block .block-summary,
   .week-block .block-desc {
     display: none;
@@ -2786,13 +2897,13 @@
   .timeline-header {
     padding: 0.875rem 1.25rem;
     border-bottom: 1px solid var(--glass-border);
-    background: rgba(30, 41, 59, 0.45);
+    background: rgb(var(--surface-rgb) / 0.45);
     backdrop-filter: blur(24px) saturate(1.2);
     -webkit-backdrop-filter: blur(24px) saturate(1.2);
     flex-shrink: 0;
     box-shadow:
-      0 4px 12px rgba(0, 0, 0, 0.15),
-      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      0 4px 12px rgb(var(--shadow-rgb) / calc(0.15 * var(--shadow-strength))),
+      inset 0 1px 0 rgb(var(--fg-rgb) / 0.05);
   }
 
   .sticky-header {
@@ -2805,17 +2916,17 @@
   .timeline-day-col-header {
     font-size: 1rem;
     font-weight: 700;
-    color: #ffffff;
+    color: var(--text-strong);
     text-transform: capitalize;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    text-shadow: 0 1px 2px rgb(var(--shadow-rgb) / calc(0.2 * var(--shadow-strength)));
   }
 
   .timeline-day-name {
     font-size: 1rem;
     font-weight: 700;
-    color: #ffffff;
+    color: var(--text-strong);
     text-transform: capitalize;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    text-shadow: 0 1px 2px rgb(var(--shadow-rgb) / calc(0.2 * var(--shadow-strength)));
   }
 
   .timeline-scroll-area {
@@ -2835,7 +2946,7 @@
 
   .time-axis {
     border-right: 1px solid var(--glass-border);
-    background: rgba(255, 255, 255, 0.01);
+    background: rgb(var(--fg-rgb) / 0.01);
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -2850,7 +2961,7 @@
     align-items: flex-start;
     font-size: 0.625rem;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgb(var(--fg-rgb) / 0.4);
     font-variant-numeric: tabular-nums;
   }
 
@@ -2898,25 +3009,55 @@
       transition: none;
       animation: none;
     }
+    /* Polanya tetap tergambar, hanya berhenti bergerak — informasinya yang
+       dipertahankan, geraknya yang dimatikan. */
+    .break-band {
+      animation: none;
+    }
   }
 
   /* Lunch-break band — a striped amber zone marking non-working hours.
      Purely decorative (pointer-events: none) so logging is still allowed. */
+  /* Pita istirahat menimpa blok worklog, bukan sebaliknya.
+   *
+   * Sebelumnya `z-index: 0` dan digambar lebih dulu di DOM, sehingga blok
+   * mana pun yang melintasinya langsung menutupinya — persis bagian yang
+   * paling perlu terlihat. Sejak jam istirahat ikut memotong durasi, batas
+   * ini harus terbaca di atas blok. Nilainya di atas `z-index: 10` milik
+   * blok yang sedang di-hover, dan `pointer-events: none` menjaga blok di
+   * bawahnya tetap bisa diklik, di-drag, dan di-resize. */
   .break-band {
     position: absolute;
     left: 0;
     right: 0;
-    z-index: 0;
+    z-index: 12;
     pointer-events: none;
-    background: repeating-linear-gradient(
+    /* Satu ubin 22×22 yang diulang, bukan `repeating-linear-gradient`.
+       Bedanya penting untuk animasi: dengan `background-size` yang pasti,
+       menggeser `background-position` sejauh satu ubin kembali ke posisi
+       yang identik, sehingga loop-nya mulus tanpa lompatan. */
+    background-image: linear-gradient(
       45deg,
-      rgba(245, 158, 11, 0.12),
-      rgba(245, 158, 11, 0.12) 8px,
-      rgba(245, 158, 11, 0.04) 8px,
-      rgba(245, 158, 11, 0.04) 16px
+      rgba(245, 158, 11, 0.2) 25%,
+      rgba(245, 158, 11, 0.07) 25%,
+      rgba(245, 158, 11, 0.07) 50%,
+      rgba(245, 158, 11, 0.2) 50%,
+      rgba(245, 158, 11, 0.2) 75%,
+      rgba(245, 158, 11, 0.07) 75%,
+      rgba(245, 158, 11, 0.07)
     );
-    border-top: 1px dashed rgba(245, 158, 11, 0.45);
-    border-bottom: 1px dashed rgba(245, 158, 11, 0.45);
+    background-size: 22px 22px;
+    animation: break-stripes 2.4s linear infinite;
+    border-top: 1px dashed rgba(245, 158, 11, 0.7);
+    border-bottom: 1px dashed rgba(245, 158, 11, 0.7);
+  }
+
+  /* Bergeser tepat satu ubin, jadi frame terakhir identik dengan frame
+     pertama. Lambat dan linear — ini latar, bukan sesuatu yang menuntut
+     perhatian. */
+  @keyframes break-stripes {
+    from { background-position: 0 0; }
+    to   { background-position: 22px 0; }
   }
 
   .break-label {
@@ -2924,6 +3065,11 @@
     top: 50%;
     left: 0.75rem;
     transform: translateY(-50%);
+    padding: 0.0625rem 0.375rem;
+    border-radius: 0.25rem;
+    /* Latar sendiri supaya label tetap terbaca saat melintas di atas blok
+       worklog yang berwarna. */
+    background: rgb(var(--surface-rgb) / 0.82);
     font-size: 0.6875rem;
     font-weight: 700;
     letter-spacing: 0.06em;
@@ -2943,7 +3089,7 @@
     grid-template-columns: auto 1fr auto;
     align-items: center;
     gap: 0.875rem;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 16px rgb(var(--shadow-rgb) / calc(0.3 * var(--shadow-strength)));
     border-left: 4px solid;
     transition:
       transform 150ms ease-out,
@@ -2957,19 +3103,34 @@
     filter: brightness(1.15);
     transform: translateY(-1px) scale(1.005);
     z-index: 10;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 8px 24px rgb(var(--shadow-rgb) / calc(0.45 * var(--shadow-strength)));
   }
 
   .worklog-block.default {
     background: rgba(99, 102, 241, 0.15);
     border-color: #6366f1;
-    color: #e0e7ff;
+    color: var(--text-accent-strong);
+  }
+
+  /* Worklog yang terpotong jam istirahat: sudut di sisi potongan diratakan
+     supaya kedua bagian terbaca sebagai satu blok yang bersambung, bukan
+     dua entri terpisah. Sudut rata di sisi potongan adalah konvensi yang
+     sama dipakai kalender lain untuk acara lintas hari, jadi tidak perlu
+     dipelajari user. */
+  .worklog-block.seg-top {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .worklog-block.seg-bottom {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
   }
 
   .worklog-block.holiday {
     background: rgba(16, 185, 129, 0.15);
     border-color: #10b981;
-    color: #d1fae5;
+    color: var(--text-success);
   }
 
   /* Entri draf (belum disubmit ke Jira) — garis putus-putus + warna kuning
@@ -2978,7 +3139,7 @@
     background: rgba(252, 211, 77, 0.12);
     border: 1px dashed rgba(252, 211, 77, 0.65);
     border-left: 4px dashed #fcd34d;
-    color: #fef3c7;
+    color: var(--text-warning);
   }
 
   .block-time {
@@ -3088,7 +3249,7 @@
 
   .block-summary {
     font-weight: 600;
-    color: #ffffff;
+    color: var(--text-strong);
     font-size: 0.8125rem;
     white-space: nowrap;
     overflow: hidden;
@@ -3097,7 +3258,7 @@
 
   .block-key {
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgb(var(--fg-rgb) / 0.7);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 0.75rem;
     flex-shrink: 0;
@@ -3115,7 +3276,7 @@
   .block-hours {
     font-weight: 700;
     font-size: 0.875rem;
-    color: #ffffff;
+    color: var(--text-strong);
     font-variant-numeric: tabular-nums;
   }
 
@@ -3154,15 +3315,15 @@
     padding: 0;
     border: none;
     border-radius: 0.375rem;
-    background: rgba(255, 255, 255, 0.16);
-    color: #fff;
+    background: rgb(var(--fg-rgb) / 0.16);
+    color: var(--text-strong);
     cursor: pointer;
     transition: background 150ms ease-out;
     outline: none;
   }
 
   .block-action:hover {
-    background: rgba(255, 255, 255, 0.28);
+    background: rgb(var(--fg-rgb) / 0.28);
   }
 
   .block-action.delete:hover {
@@ -3184,11 +3345,11 @@
   }
 
   .block-action.cancel-del {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgb(var(--fg-rgb) / 0.2);
   }
 
   .block-action.cancel-del:hover {
-    background: rgba(255, 255, 255, 0.32);
+    background: rgb(var(--fg-rgb) / 0.32);
   }
 
   .block-action:focus-visible {
@@ -3227,7 +3388,7 @@
   .worklog-block.dragging {
     cursor: grabbing;
     z-index: 5;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+    box-shadow: 0 10px 30px rgb(var(--shadow-rgb) / calc(0.55 * var(--shadow-strength)));
     filter: brightness(1.06);
     /* Follow the pointer 1:1 — no easing on position while dragging. */
     transition: none;
@@ -3255,7 +3416,7 @@
     width: 1.75rem;
     height: 2px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.55);
+    background: rgb(var(--fg-rgb) / 0.55);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -3268,9 +3429,9 @@
     height: 100%;
     background: linear-gradient(
       90deg,
-      rgba(255, 255, 255, 0.04) 0%,
-      rgba(255, 255, 255, 0.12) 50%,
-      rgba(255, 255, 255, 0.04) 100%
+      rgb(var(--fg-rgb) / 0.04) 0%,
+      rgb(var(--fg-rgb) / 0.12) 50%,
+      rgb(var(--fg-rgb) / 0.04) 100%
     );
     background-size: 200% 100%;
     animation: shimmer 1.4s ease-in-out infinite;
@@ -3282,7 +3443,7 @@
     border-radius: 0.75rem;
     background: var(--glass-bg-strong);
     border: 1px dashed var(--glass-border);
-    color: rgba(255, 255, 255, 0.6);
+    color: rgb(var(--fg-rgb) / 0.6);
     font-size: 0.875rem;
     text-align: center;
   }
@@ -3304,16 +3465,16 @@
     background:
       linear-gradient(
         180deg,
-        rgba(15, 23, 42, 0.96) 0%,
-        rgba(15, 23, 42, 0.94) 100%
+        rgb(var(--surface-rgb) / 0.96) 0%,
+        rgb(var(--surface-rgb) / 0.94) 100%
       );
     backdrop-filter: blur(28px) saturate(1.2);
     -webkit-backdrop-filter: blur(28px) saturate(1.2);
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    border: 1px solid rgb(var(--fg-rgb) / 0.14);
     box-shadow:
-      0 20px 40px -12px rgba(0, 0, 0, 0.65),
-      0 0 0 1px rgba(255, 255, 255, 0.04) inset;
-    color: #f1f5f9;
+      0 20px 40px -12px rgb(var(--shadow-rgb) / calc(0.65 * var(--shadow-strength))),
+      0 0 0 1px rgb(var(--fg-rgb) / 0.04) inset;
+    color: var(--text-primary);
     pointer-events: auto;
     animation: hover-fade-in 120ms ease-out;
   }
@@ -3330,7 +3491,7 @@
     gap: 0.5rem;
     padding-bottom: 0.5rem;
     margin-bottom: 0.5rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgb(var(--fg-rgb) / 0.08);
   }
 
   .hover-holiday {
@@ -3372,37 +3533,37 @@
   .hover-holiday-name {
     font-size: 0.75rem;
     font-weight: 600;
-    color: #fecaca;
+    color: var(--text-danger);
     line-height: 1.25;
   }
 
   .hover-holiday.company .hover-holiday-name {
-    color: #fde68a;
+    color: var(--text-warning);
   }
 
   .hover-date {
     font-size: 0.8125rem;
     font-weight: 600;
-    color: #f8fafc;
+    color: var(--text-primary);
   }
 
   .hover-total {
     font-size: 0.875rem;
     font-weight: 700;
-    color: #ffffff;
+    color: var(--text-strong);
     font-variant-numeric: tabular-nums;
   }
 
   .hover-total-unit {
     font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgb(var(--fg-rgb) / 0.7);
     margin-left: 0.0625rem;
   }
 
   .hover-empty {
     margin: 0;
     font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgb(var(--fg-rgb) / 0.6);
     text-align: center;
     padding: 0.5rem 0;
   }
@@ -3425,7 +3586,7 @@
     align-items: center;
     padding: 0.375rem 0.5rem;
     border-radius: 0.5rem;
-    background: rgba(255, 255, 255, 0.04);
+    background: rgb(var(--fg-rgb) / 0.04);
     font-size: 0.8125rem;
   }
 
@@ -3435,8 +3596,8 @@
     gap: 0.5rem;
     padding: 0.75rem;
     border-radius: 0.625rem;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgb(var(--fg-rgb) / 0.03);
+    border: 1px solid rgb(var(--fg-rgb) / 0.06);
     margin-bottom: 0.5rem;
   }
 
@@ -3464,7 +3625,7 @@
   .hover-entry-key-static {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-weight: 700;
-    color: #c7d2fe;
+    color: var(--text-accent-strong);
     font-size: 0.8125rem;
   }
 
@@ -3475,20 +3636,20 @@
   }
 
   .hover-entry-key-link:hover {
-    color: #ffffff;
-    border-bottom-color: #ffffff;
+    color: var(--text-strong);
+    border-bottom-color: var(--text-strong);
   }
 
   .hover-entry-duration {
     margin-left: auto;
     font-weight: 700;
-    color: #ffffff;
+    color: var(--text-strong);
     font-size: 0.8125rem;
   }
 
   .hover-entry-body {
     padding-top: 0.5rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    border-top: 1px solid rgb(var(--fg-rgb) / 0.04);
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
@@ -3505,14 +3666,14 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: rgba(255, 255, 255, 0.35);
+    color: rgb(var(--fg-rgb) / 0.35);
   }
 
   .hover-field-value {
     margin: 0;
     font-size: 0.75rem;
     line-height: 1.4;
-    color: rgba(255, 255, 255, 0.9);
+    color: rgb(var(--fg-rgb) / 0.9);
     word-break: break-word;
   }
 
@@ -3528,11 +3689,11 @@
        rounded corners line up with the card's bottom edge. */
     margin: 0.75rem -0.75rem -0.75rem;
     padding: 0.75rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid rgb(var(--fg-rgb) / 0.08);
     border-bottom-left-radius: 0.625rem;
     border-bottom-right-radius: 0.625rem;
     /* Opaque surface so the scrolling comment never shows through the bar. */
-    background: rgba(15, 23, 42, 0.98);
+    background: rgb(var(--surface-rgb) / 0.98);
     -webkit-backdrop-filter: blur(8px);
     backdrop-filter: blur(8px);
   }
@@ -3554,7 +3715,7 @@
 
   .hover-action-btn.edit {
     background: rgba(99, 102, 241, 0.15);
-    color: #a5b4fc;
+    color: var(--text-accent);
     border-color: rgba(99, 102, 241, 0.3);
   }
 
@@ -3565,7 +3726,7 @@
 
   .hover-action-btn.delete {
     background: rgba(244, 63, 94, 0.15);
-    color: #fda4af;
+    color: var(--text-danger);
     border-color: rgba(244, 63, 94, 0.3);
   }
 
@@ -3575,13 +3736,13 @@
   }
 
   .hover-action-btn.cancel {
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.85);
-    border-color: rgba(255, 255, 255, 0.14);
+    background: rgb(var(--fg-rgb) / 0.06);
+    color: rgb(var(--fg-rgb) / 0.85);
+    border-color: rgb(var(--fg-rgb) / 0.14);
   }
 
   .hover-action-btn.cancel:hover {
-    background: rgba(255, 255, 255, 0.12);
+    background: rgb(var(--fg-rgb) / 0.12);
   }
 
   .action-icon {
@@ -3591,7 +3752,7 @@
 
   .hover-entry-key {
     font-weight: 600;
-    color: #c7d2fe;
+    color: var(--text-accent-strong);
     font-variant-numeric: tabular-nums;
     text-decoration: none;
     border-bottom: 1px dashed transparent;
@@ -3606,7 +3767,7 @@
 
   a.hover-entry-key:hover,
   a.hover-entry-key:focus-visible {
-    color: #e0e7ff;
+    color: var(--text-accent-strong);
     border-bottom-color: rgba(199, 210, 254, 0.55);
     outline: none;
   }
@@ -3616,7 +3777,7 @@
   }
 
   .hover-entry-desc {
-    color: rgba(255, 255, 255, 0.78);
+    color: rgb(var(--fg-rgb) / 0.78);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -3625,7 +3786,7 @@
 
   .hover-entry-hours {
     font-weight: 600;
-    color: #ffffff;
+    color: var(--text-strong);
     font-variant-numeric: tabular-nums;
   }
 
@@ -3637,7 +3798,7 @@
     border-radius: 0.625rem;
     background: var(--glass-bg-strong);
     border: 1px dashed var(--glass-border);
-    color: rgba(255, 255, 255, 0.6);
+    color: rgb(var(--fg-rgb) / 0.6);
     font-size: 0.875rem;
     text-align: center;
   }
@@ -3660,9 +3821,9 @@
     border-radius: 0.625rem;
     background: linear-gradient(
       90deg,
-      rgba(255, 255, 255, 0.04) 0%,
-      rgba(255, 255, 255, 0.12) 50%,
-      rgba(255, 255, 255, 0.04) 100%
+      rgb(var(--fg-rgb) / 0.04) 0%,
+      rgb(var(--fg-rgb) / 0.12) 50%,
+      rgb(var(--fg-rgb) / 0.04) 100%
     );
     background-size: 200% 100%;
     animation: shimmer 1.4s ease-in-out infinite;
@@ -3730,7 +3891,7 @@
     border-radius: 999px;
     border: 1px solid var(--glass-border);
     background: transparent;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgb(var(--fg-rgb) / 0.6);
     font-size: 0.75rem;
     font-weight: 600;
     cursor: pointer;
@@ -3742,14 +3903,14 @@
   }
 
   .groupby-chip:hover:not(.selected) {
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.85);
+    background: rgb(var(--fg-rgb) / 0.05);
+    color: rgb(var(--fg-rgb) / 0.85);
   }
 
   .groupby-chip.selected {
     background: rgba(99, 102, 241, 0.18);
     border-color: rgba(99, 102, 241, 0.55);
-    color: #e0e7ff;
+    color: var(--text-accent-strong);
   }
 
   .groupby-chip:focus-visible {
@@ -3758,15 +3919,20 @@
 
   /* Header kelompok issue: non-interaktif (tidak memilih tanggal), jadi
      tanpa cursor/hover milik varian tanggal. */
-  .issue-header {
+  /* Dua-kelas: `.list-group-header` dideklarasikan lebih bawah dengan
+     spesifisitas sama, jadi `.issue-header` sendirian akan kalah dan header
+     kelompok issue tetap memakai kursor pointer walau tidak bisa diklik. */
+  .list-group-header.issue-header {
     cursor: default;
   }
 
-  .issue-header:hover {
+  .list-group-header.issue-header:hover {
     background: transparent;
   }
 
-  .issue-pill {
+  /* Sama seperti di atas: tanpa dua-kelas, warna indigo badge persentase
+     ditimpa latar netral `.list-group-pill`. */
+  .list-group-pill.issue-pill {
     background: rgba(99, 102, 241, 0.16);
     border-color: rgba(99, 102, 241, 0.4);
   }
@@ -3774,13 +3940,13 @@
   .issue-share {
     font-size: 0.8125rem;
     font-weight: 700;
-    color: #c7d2fe;
+    color: var(--text-accent-strong);
     font-variant-numeric: tabular-nums;
   }
 
   .issue-group-key {
     font-weight: 700;
-    color: #a5b4fc;
+    color: var(--text-accent);
     text-decoration: none;
   }
 
@@ -3791,7 +3957,7 @@
   .issue-group-summary {
     margin-left: 0.5rem;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.75);
+    color: rgb(var(--fg-rgb) / 0.75);
   }
 
   /* Kolom tanggal menggantikan issue key di baris kelompok issue. Ditulis
@@ -3799,7 +3965,7 @@
      bawah — keduanya sama-sama satu kelas, jadi urutanlah penentunya. */
   .entry-key.entry-date {
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.55);
+    color: rgb(var(--fg-rgb) / 0.55);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
@@ -3813,7 +3979,7 @@
     padding: 0.75rem 0.875rem;
     border: none;
     background: transparent;
-    color: #f1f5f9;
+    color: var(--text-primary);
     text-align: left;
     cursor: pointer;
     transition:
@@ -3823,7 +3989,7 @@
   }
 
   .list-group-header:hover {
-    background: rgba(255, 255, 255, 0.04);
+    background: rgb(var(--fg-rgb) / 0.04);
   }
 
   .list-group-header:focus-visible {
@@ -3843,8 +4009,8 @@
     width: 2.75rem;
     height: 2.75rem;
     border-radius: 0.625rem;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgb(var(--fg-rgb) / 0.06);
+    border: 1px solid rgb(var(--fg-rgb) / 0.08);
     flex-shrink: 0;
     transition:
       background-color 200ms ease-out,
@@ -3865,7 +4031,7 @@
     font-size: 1rem;
     font-weight: 700;
     line-height: 1;
-    color: #ffffff;
+    color: var(--text-strong);
     font-variant-numeric: tabular-nums;
   }
 
@@ -3874,12 +4040,12 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgb(var(--fg-rgb) / 0.7);
     margin-top: 0.125rem;
   }
 
   .list-group-header.today .list-group-month {
-    color: rgba(255, 255, 255, 0.9);
+    color: rgb(var(--fg-rgb) / 0.9);
   }
 
   .list-group-meta {
@@ -3892,7 +4058,7 @@
   .list-group-date {
     font-size: 0.875rem;
     font-weight: 600;
-    color: #f1f5f9;
+    color: var(--text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -3900,13 +4066,13 @@
 
   .list-group-count {
     font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.55);
+    color: rgb(var(--fg-rgb) / 0.55);
   }
 
   .list-group-hours {
     font-size: 1.125rem;
     font-weight: 700;
-    color: #ffffff;
+    color: var(--text-strong);
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
   }
@@ -3914,7 +4080,7 @@
   .list-group-unit {
     font-size: 0.75rem;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgb(var(--fg-rgb) / 0.7);
     margin-left: 0.0625rem;
   }
 
@@ -3925,7 +4091,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    border-top: 1px solid rgb(var(--fg-rgb) / 0.05);
   }
 
   .list-entry {
@@ -3936,7 +4102,7 @@
     padding: 0.5rem 0.625rem;
     margin-top: 0.5rem;
     border-radius: 0.5rem;
-    background: rgba(255, 255, 255, 0.03);
+    background: rgb(var(--fg-rgb) / 0.03);
     font-size: 0.8125rem;
     /* Stagger entries inside a group on top of the group's own delay. */
     animation: list-entry-enter 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -3949,7 +4115,7 @@
      .workspace-shell → body) sets one either, so they need explicit values. */
   .entry-key {
     font-weight: 600;
-    color: #a5b4fc;
+    color: var(--text-accent);
     text-decoration: none;
     white-space: nowrap;
   }
@@ -3960,13 +4126,13 @@
   }
 
   .entry-desc {
-    color: rgba(255, 255, 255, 0.75);
+    color: rgb(var(--fg-rgb) / 0.75);
     min-width: 0;
   }
 
   .entry-hours {
     font-weight: 600;
-    color: #f1f5f9;
+    color: var(--text-primary);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
@@ -3979,7 +4145,7 @@
 
   .list-entry.pending .entry-desc::after {
     content: " · draf";
-    color: #fcd34d;
+    color: var(--text-warning);
     font-weight: 600;
   }
 

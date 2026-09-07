@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../stores/i18n.svelte";
   import BackgroundPaths from "../components/BackgroundPaths.svelte";
   import CredentialForm from "../components/CredentialForm.svelte";
   import erajayaLogoUrl from "../../assets/erajaya-logo.svg";
@@ -88,7 +89,10 @@
   }
 </script>
 
-<div class="login-page">
+<!-- `data-force-theme="dark"` mengunci layar ini ke palet gelap apa pun tema
+     yang dipilih user: logo, gradien, dan kurva animasinya dirancang untuk
+     latar gelap. Tema baru berlaku setelah masuk ke workspace. -->
+<div class="login-page" data-force-theme="dark">
   <BackgroundPaths exiting={isAuthenticating || showSuccess} />
 
   <!-- Brand backdrop: large, dim Erajaya logo behind the login form. The
@@ -109,7 +113,7 @@
       <!-- Loading state while credential store is being checked -->
       <div class="loading-container" aria-live="polite" aria-busy="true">
         <div class="loading-spinner-large" aria-hidden="true"></div>
-        <p class="loading-text">Loading...</p>
+        <p class="loading-text">{t("login.loading")}</p>
       </div>
     {:else if showSuccess}
       <!-- Success state: show display name for 2 seconds -->
@@ -142,7 +146,7 @@
           </svg>
         </div>
         <h2 class="success-title">Welcome, {displayName}!</h2>
-        <p class="success-subtitle">Redirecting to your workspace...</p>
+        <p class="success-subtitle">{t("login.redirecting")}</p>
       </div>
     {:else}
       <!-- Login form -->
@@ -181,7 +185,7 @@
      * faster than expected, the page never flashes to the browser's
      * default white. The base color matches the swarm's gradient so
      * the transition reads as "curves leave a dark page". */
-    background: #0a0f1f;
+    background: var(--app-bg);
   }
 
   /* --- Brand backdrop ---------------------------------------------------
@@ -210,7 +214,7 @@
      * full-page version since the footprint is much smaller. */
     opacity: 0.85;
     filter:
-      brightness(0) invert(1)
+      brightness(0) invert(var(--logo-invert))
       sepia(40%) saturate(420%) hue-rotate(210deg)
       drop-shadow(0 0 18px rgba(99, 102, 241, 0.55));
     user-select: none;
@@ -239,7 +243,7 @@
       circle at center,
       rgba(99, 102, 241, 0.22) 0%,
       rgba(139, 92, 246, 0.12) 40%,
-      rgba(15, 23, 42, 0) 70%
+      rgb(var(--surface-rgb) / 0) 70%
     );
     filter: blur(34px);
     animation: glow-pulse 9s ease-in-out infinite;
@@ -311,14 +315,14 @@
   .loading-spinner-large {
     width: 2.5rem;
     height: 2.5rem;
-    border: 3px solid rgba(255, 255, 255, 0.15);
+    border: 3px solid rgb(var(--fg-rgb) / 0.15);
     border-top-color: rgba(99, 102, 241, 0.8);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
 
   .loading-text {
-    color: rgba(255, 255, 255, 0.7);
+    color: rgb(var(--fg-rgb) / 0.7);
     font-size: 0.9375rem;
     margin: 0;
   }
@@ -367,7 +371,7 @@
   .success-icon {
     width: 3.5rem;
     height: 3.5rem;
-    color: #34d399;
+    color: var(--text-success);
     /* Soft glow so the green pops on the dark background. */
     filter: drop-shadow(0 0 12px rgba(52, 211, 153, 0.45));
     /* Reset transform so success-pop on the wrap is the only entrance
@@ -423,13 +427,13 @@
   .success-title {
     font-size: 1.5rem;
     font-weight: 600;
-    color: #f1f5f9;
+    color: var(--text-primary);
     margin: 0;
   }
 
   .success-subtitle {
     font-size: 0.875rem;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgb(var(--fg-rgb) / 0.6);
     margin: 0;
   }
 
@@ -454,13 +458,13 @@
   .app-logo {
     width: 2rem;
     height: 2rem;
-    color: #a5b4fc;
+    color: var(--text-accent);
   }
 
   .app-title {
     font-size: 1.375rem;
     font-weight: 700;
-    color: #f1f5f9;
+    color: var(--text-primary);
     margin: 0;
     letter-spacing: -0.01em;
   }

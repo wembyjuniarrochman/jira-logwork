@@ -20,6 +20,9 @@ export interface WorklogEntry {
   /** True untuk entri draf (belum ada di Jira) — mis. hasil generate
    *  penjadwalan otomatis yang menunggu direview & disubmit user. */
   pending?: boolean;
+  /** Nilai custom field "Work Reference" milik issue induk, bila project
+   *  memakainya. Kosong/undefined bila field-nya tidak ada di instance ini. */
+  workReference?: string;
 }
 
 export interface WorklogDay {

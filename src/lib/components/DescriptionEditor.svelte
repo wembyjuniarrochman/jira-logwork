@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../stores/i18n.svelte";
   /**
    * DescriptionEditor
    *
@@ -176,7 +177,7 @@
 </script>
 
 <div class="desc-editor" class:invalid={ariaInvalid} bind:this={rootEl}>
-  <div class="desc-toolbar" role="toolbar" aria-label="Format deskripsi">
+  <div class="desc-toolbar" role="toolbar" aria-label={t("editor.formatLabel")}>
     <!-- Text Style -->
     <div class="tb-group">
       <button
@@ -185,7 +186,7 @@
         class:active={openMenu === "style"}
         aria-haspopup="menu"
         aria-expanded={openMenu === "style"}
-        title="Text style"
+        title={t("editor.textStyle")}
         onclick={() => toggleMenu("style")}
       >
         <span class="tb-aa">Aa</span>
@@ -196,23 +197,23 @@
       {#if openMenu === "style"}
         <div class="tb-menu" role="menu">
           <button type="button" role="menuitem" class="tb-item" onclick={() => wrap("*", "*", "tebal")}>
-            <span class="tb-item-mark" style="font-weight:800;">B</span> Bold
+            <span class="tb-item-mark" style="font-weight:800;">B</span> {t("editor.bold")}
           </button>
           <button type="button" role="menuitem" class="tb-item" onclick={() => wrap("_", "_", "miring")}>
-            <span class="tb-item-mark" style="font-style:italic;">I</span> Italic
+            <span class="tb-item-mark" style="font-style:italic;">I</span> {t("editor.italic")}
           </button>
           <button type="button" role="menuitem" class="tb-item" onclick={() => wrap("-", "-", "coret")}>
-            <span class="tb-item-mark" style="text-decoration:line-through;">S</span> Strikethrough
+            <span class="tb-item-mark" style="text-decoration:line-through;">S</span> {t("editor.strike")}
           </button>
           <button type="button" role="menuitem" class="tb-item" onclick={() => wrap("+", "+", "garis bawah")}>
-            <span class="tb-item-mark" style="text-decoration:underline;">U</span> Underline
+            <span class="tb-item-mark" style="text-decoration:underline;">U</span> {t("editor.underline")}
           </button>
           <button type="button" role="menuitem" class="tb-item" onclick={() => wrap("{{", "}}", "kode")}>
-            <span class="tb-item-mark tb-mono">{"</>"}</span> Monospace
+            <span class="tb-item-mark tb-mono">{"</>"}</span> {t("editor.mono")}
           </button>
           <div class="tb-divider" role="separator"></div>
           <button type="button" role="menuitem" class="tb-item" onclick={() => prefixLines("h3. ")}>
-            <span class="tb-item-mark">H</span> Heading
+            <span class="tb-item-mark">H</span> {t("editor.heading")}
           </button>
         </div>
       {/if}
@@ -226,8 +227,8 @@
         class:active={openMenu === "element"}
         aria-haspopup="menu"
         aria-expanded={openMenu === "element"}
-        title="Insert element"
-        aria-label="Insert element"
+        title={t("editor.insertElement")}
+        aria-label={t("editor.insertElement")}
         onclick={() => toggleMenu("element")}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -238,19 +239,19 @@
       {#if openMenu === "element"}
         <div class="tb-menu" role="menu">
           <button type="button" role="menuitem" class="tb-item" onclick={() => prefixLines("* ")}>
-            <span class="tb-item-mark">•</span> Bulleted list
+            <span class="tb-item-mark">•</span> {t("editor.bullets")}
           </button>
           <button type="button" role="menuitem" class="tb-item" onclick={() => prefixLines("# ")}>
-            <span class="tb-item-mark">1.</span> Numbered list
+            <span class="tb-item-mark">1.</span> {t("editor.numbers")}
           </button>
           <button type="button" role="menuitem" class="tb-item" onclick={() => insertBlock("{code}\n", "\n{code}", "kode")}>
-            <span class="tb-item-mark tb-mono">{"{}"}</span> Code block
+            <span class="tb-item-mark tb-mono">{"{}"}</span> {t("editor.codeBlock")}
           </button>
           <button type="button" role="menuitem" class="tb-item" onclick={() => insertBlock("{quote}\n", "\n{quote}", "kutipan")}>
-            <span class="tb-item-mark">❝</span> Quote
+            <span class="tb-item-mark">❝</span> {t("editor.quote")}
           </button>
           <button type="button" role="menuitem" class="tb-item" onclick={() => insertText("\n----\n")}>
-            <span class="tb-item-mark">―</span> Divider
+            <span class="tb-item-mark">―</span> {t("editor.divider")}
           </button>
         </div>
       {/if}
@@ -264,8 +265,8 @@
         class:active={openMenu === "link"}
         aria-haspopup="dialog"
         aria-expanded={openMenu === "link"}
-        title="Insert link"
-        aria-label="Insert link"
+        title={t("editor.insertLink")}
+        aria-label={t("editor.insertLink")}
         onclick={() => toggleMenu("link")}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -274,18 +275,18 @@
         </svg>
       </button>
       {#if openMenu === "link"}
-        <div class="tb-menu tb-link-form" role="dialog" aria-label="Sisipkan link">
+        <div class="tb-menu tb-link-form" role="dialog" aria-label="{t("editor.insertLink")}">
           <label class="tb-link-field">
-            <span>Teks</span>
+            <span>{t("editor.linkText")}</span>
             <input
               class="tb-link-input"
               type="text"
               bind:value={linkText}
-              placeholder="Label (opsional)"
+              placeholder="{t("editor.linkLabel")}"
             />
           </label>
           <label class="tb-link-field">
-            <span>URL</span>
+            <span>{t("editor.url")}</span>
             <input
               class="tb-link-input"
               type="url"
@@ -301,14 +302,14 @@
             />
           </label>
           <div class="tb-link-actions">
-            <button type="button" class="tb-link-cancel" onclick={closeMenu}>Batal</button>
+            <button type="button" class="tb-link-cancel" onclick={closeMenu}>{t("common.cancel")}</button>
             <button
               type="button"
               class="tb-link-insert"
               disabled={!linkUrl.trim()}
               onclick={insertLink}
             >
-              Sisipkan
+              {t("editor.insert")}
             </button>
           </div>
         </div>
@@ -318,13 +319,13 @@
     <span class="tb-spacer"></span>
 
     <!-- Undo / Redo -->
-    <button type="button" class="tb-btn tb-icon" title="Undo" aria-label="Undo" onclick={undo}>
+    <button type="button" class="tb-btn tb-icon" title={t("editor.undo")} aria-label={t("editor.undo")} onclick={undo}>
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <polyline points="9 14 4 9 9 4" />
         <path d="M4 9h11a5 5 0 0 1 0 10h-1" />
       </svg>
     </button>
-    <button type="button" class="tb-btn tb-icon" title="Redo" aria-label="Redo" onclick={redo}>
+    <button type="button" class="tb-btn tb-icon" title={t("editor.redo")} aria-label={t("editor.redo")} onclick={redo}>
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <polyline points="15 14 20 9 15 4" />
         <path d="M20 9H9a5 5 0 0 0 0 10h1" />
@@ -349,15 +350,15 @@
     display: flex;
     flex-direction: column;
     border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgb(var(--fg-rgb) / 0.12);
+    background: rgb(var(--fg-rgb) / 0.06);
     transition: border-color 0.2s ease-out, box-shadow 0.15s ease-out, background 0.2s ease-out;
   }
 
   .desc-editor:focus-within {
     border-color: rgba(99, 102, 241, 0.6);
     box-shadow: var(--focus-ring);
-    background: rgba(255, 255, 255, 0.08);
+    background: rgb(var(--fg-rgb) / 0.08);
   }
 
   .desc-editor.invalid {
@@ -370,7 +371,7 @@
     align-items: center;
     gap: 0.125rem;
     padding: 0.25rem 0.375rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgb(var(--fg-rgb) / 0.08);
   }
 
   .tb-group {
@@ -391,7 +392,7 @@
     border: none;
     border-radius: 0.375rem;
     background: transparent;
-    color: rgba(255, 255, 255, 0.8);
+    color: rgb(var(--fg-rgb) / 0.8);
     cursor: pointer;
     transition: background 150ms ease-out, color 150ms ease-out;
     outline: none;
@@ -399,8 +400,8 @@
 
   .tb-btn:hover,
   .tb-btn.active {
-    background: rgba(255, 255, 255, 0.1);
-    color: #f8fafc;
+    background: rgb(var(--fg-rgb) / 0.1);
+    color: var(--text-primary);
   }
 
   .tb-btn:focus-visible {
@@ -447,15 +448,15 @@
     flex-direction: column;
     gap: 0.0625rem;
     border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    border: 1px solid rgb(var(--fg-rgb) / 0.14);
     background: linear-gradient(
       180deg,
-      rgba(15, 23, 42, 0.97) 0%,
-      rgba(15, 23, 42, 0.95) 100%
+      rgb(var(--surface-rgb) / 0.97) 0%,
+      rgb(var(--surface-rgb) / 0.95) 100%
     );
     backdrop-filter: blur(28px) saturate(1.2);
     -webkit-backdrop-filter: blur(28px) saturate(1.2);
-    box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.65);
+    box-shadow: 0 20px 40px -12px rgb(var(--shadow-rgb) / calc(0.65 * var(--shadow-strength)));
   }
 
   .tb-item {
@@ -466,7 +467,7 @@
     border: none;
     border-radius: 0.375rem;
     background: transparent;
-    color: rgba(255, 255, 255, 0.88);
+    color: rgb(var(--fg-rgb) / 0.88);
     font-size: 0.8125rem;
     text-align: left;
     cursor: pointer;
@@ -484,7 +485,7 @@
     width: 1.25rem;
     text-align: center;
     font-size: 0.8125rem;
-    color: #c7d2fe;
+    color: var(--text-accent-strong);
   }
 
   .tb-mono {
@@ -495,7 +496,7 @@
   .tb-divider {
     height: 1px;
     margin: 0.1875rem 0.25rem;
-    background: rgba(255, 255, 255, 0.08);
+    background: rgb(var(--fg-rgb) / 0.08);
   }
 
   /* --- Insert-link form --- */
@@ -513,15 +514,15 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgb(var(--fg-rgb) / 0.5);
   }
 
   .tb-link-input {
     padding: 0.4375rem 0.5rem;
     border-radius: 0.375rem;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    background: rgba(255, 255, 255, 0.06);
-    color: #f1f5f9;
+    border: 1px solid rgb(var(--fg-rgb) / 0.14);
+    background: rgb(var(--fg-rgb) / 0.06);
+    color: var(--text-primary);
     font-size: 0.8125rem;
     font-weight: 400;
     text-transform: none;
@@ -553,18 +554,18 @@
   }
 
   .tb-link-cancel {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.12);
-    color: rgba(255, 255, 255, 0.85);
+    background: rgb(var(--fg-rgb) / 0.06);
+    border-color: rgb(var(--fg-rgb) / 0.12);
+    color: rgb(var(--fg-rgb) / 0.85);
   }
 
   .tb-link-cancel:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgb(var(--fg-rgb) / 0.1);
   }
 
   .tb-link-insert {
     background: rgba(99, 102, 241, 0.9);
-    color: #fff;
+    color: var(--text-on-accent);
   }
 
   .tb-link-insert:hover:not(:disabled) {
@@ -583,7 +584,7 @@
     padding: 0.625rem 0.75rem;
     border: none;
     background: transparent;
-    color: #f1f5f9;
+    color: var(--text-primary);
     font-size: 0.875rem;
     font-family: inherit;
     line-height: 1.45;
@@ -593,7 +594,7 @@
   }
 
   .desc-textarea::placeholder {
-    color: rgba(255, 255, 255, 0.35);
+    color: rgb(var(--fg-rgb) / 0.35);
   }
 
   @media (prefers-reduced-motion: reduce) {

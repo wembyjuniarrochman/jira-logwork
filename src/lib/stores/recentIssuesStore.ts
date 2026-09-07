@@ -24,6 +24,16 @@ export interface RecentIssue {
   summary: string;
   /** ISO 8601 timestamp string from `new Date().toISOString()`. */
   lastUsedAt: string;
+  /**
+   * Nama issue type dari Jira ("Task", "Epic", "Sub-task", …), dipakai untuk
+   * ikon tipe di daftar recent.
+   *
+   * Opsional: entri yang sudah tersimpan sebelum field ini ada tidak
+   * memilikinya, dan `loadRecentIssues` sengaja tidak memvalidasi bentuk —
+   * entri lama tetap terbaca, hanya tanpa ikon, lalu terisi sendiri saat
+   * issue-nya dipakai lagi.
+   */
+  issueType?: string;
 }
 
 /** Maximum number of entries retained per user. */
@@ -56,13 +66,20 @@ export function cacheKeyForEmail(email: string): string {
  */
 export function upsertRecentIssue(
   cache: RecentIssue[],
-  issue: { issueKey: string; summary: string },
+  issue: { issueKey: string; summary: string; issueType?: string },
   now: Date = new Date()
 ): RecentIssue[] {
+  // Pertahankan tipe yang sudah tersimpan bila pemanggil kali ini tidak
+  // membawanya: tidak semua jalur submit tahu tipe issue-nya, dan ikon yang
+  // sudah benar tidak seharusnya hilang gara-gara dicatat lewat jalur lain.
+  const previous = cache.find((entry) => entry.issueKey === issue.issueKey);
+  const issueType = issue.issueType ?? previous?.issueType;
+
   const upserted: RecentIssue = {
     issueKey: issue.issueKey,
     summary: issue.summary,
     lastUsedAt: now.toISOString(),
+    ...(issueType ? { issueType } : {}),
   };
 
   const withoutDuplicate = cache.filter((entry) => entry.issueKey !== issue.issueKey);

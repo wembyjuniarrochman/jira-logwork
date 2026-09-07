@@ -6,20 +6,70 @@
  * reference these tokens (never raw values) to keep the visual language
  * consistent with the login page.
  * ------------------------------------------------------------------------- */
-:root {
-  --glass-bg:        rgba(255, 255, 255, 0.05);
-  --glass-bg-strong: rgba(255, 255, 255, 0.08);
-  --glass-border:    rgba(255, 255, 255, 0.10);
+/* -------------------------------------------------------------------------
+ * Tema
+ *
+ * `--fg-rgb` adalah kanal foreground: nyaris semua warna "netral" di aplikasi
+ * ini dulunya ditulis `rgba(255, 255, 255, α)` — dipakai bergantian untuk
+ * teks, garis batas, dan permukaan bertingkat. Ketiganya sebenarnya hal yang
+ * sama: lapisan foreground di atas latar. Dengan membalik satu kanal ini,
+ * semuanya ikut benar di tema terang tanpa perlu aturan per-komponen.
+ *
+ * Atribut `data-theme` ditulis oleh `themeStore`; `:root` memegang nilai
+ * gelap sebagai default supaya tampilan tidak berkedip sebelum store sempat
+ * berjalan.
+ *
+ * `[data-force-theme="dark"]` memakai nilai yang sama persis dan dipasang di
+ * halaman login. Login adalah layar splash berbranding — logo Erajaya,
+ * gradien gelap, dan kurva animasi putih dirancang untuk latar gelap, jadi
+ * ia sengaja tidak ikut tema. Karena token diwarisi, mendeklarasikannya
+ * ulang di elemen login sudah cukup mengalahkan nilai terang dari `<html>`.
+ * ------------------------------------------------------------------------- */
+:root,
+[data-force-theme="dark"] {
+  color-scheme: dark;
+
+  --fg-rgb:          255 255 255;
+  /* Kanal permukaan: warna dasar panel melayang (dropdown, listbox, kartu
+     hover, header timeline). Terpisah dari `--fg-rgb` karena ini latar,
+     bukan lapisan foreground — di tema terang keduanya bergerak ke arah
+     berlawanan. */
+  --surface-rgb:     15 23 42;
+  --app-bg:          #0a0f1f;
+  --app-bg-mid-1:    #0f1530;
+  --app-bg-mid-2:    #0c1426;
+  --app-bg-gradient: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 25%, #0d1b2a 50%, #1b2838 75%, #0f0f23 100%);
+  /* Logo Erajaya dinormalkan ke satu warna lalu diwarnai indigo. Di tema
+     gelap perlu dibalik dulu jadi putih; di tema terang justru tidak,
+     karena hasilnya harus gelap agar terbaca di latar cerah. */
+  --logo-invert:     1;
+  --text-primary:    #f1f5f9;
+  --text-strong:     #ffffff;
+  /* Teks di atas permukaan beraksen (tombol gradien, pill "hari ini",
+     avatar). Tetap putih di kedua tema karena latarnya selalu indigo pekat
+     — inilah yang membedakannya dari `--text-strong`, yang harus membalik. */
+  --text-on-accent:  #ffffff;
+  --text-accent:        #a5b4fc;
+  --text-accent-strong: #c7d2fe;
+  --text-danger:     #fca5a5;
+  --text-warning:    #fcd34d;
+  --text-success:    #6ee7b7;
+  --shadow-rgb:      0 0 0;
+  --shadow-strength: 1;
+
+  --glass-bg:        rgb(var(--fg-rgb) / 0.05);
+  --glass-bg-strong: rgb(var(--fg-rgb) / 0.08);
+  --glass-border:    rgb(var(--fg-rgb) / 0.10);
   --glass-blur:      20px;
-  --glass-shadow:    0 25px 50px -12px rgba(0, 0, 0, 0.5),
-                     inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  --glass-shadow:    0 25px 50px -12px rgb(var(--shadow-rgb) / calc(0.5 * var(--shadow-strength))),
+                     inset 0 1px 0 rgb(var(--fg-rgb) / 0.1);
   --glass-radius:    1.25rem;
 
   --accent-from:     #6366f1; /* indigo-500 */
   --accent-to:       #8b5cf6; /* violet-500 */
   --focus-ring:      0 0 0 3px rgba(99, 102, 241, 0.55);
 
-  --intensity-0:     rgba(255, 255, 255, 0.06);
+  --intensity-0:     rgb(var(--fg-rgb) / 0.06);
   --intensity-1:     rgba(99, 102, 241, 0.25);
   --intensity-2:     rgba(99, 102, 241, 0.45);
   --intensity-3:     rgba(99, 102, 241, 0.70);
@@ -36,6 +86,42 @@
    * platform supports it. */
   --surface-base:    rgba(13, 19, 33, 0.66);
   --surface-overlay: rgba(13, 19, 33, 0.94);
+}
+
+/* Tema terang. Hanya token yang dibalik — tidak ada aturan per-komponen. */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --fg-rgb:          15 23 42;   /* slate-900 */
+  --surface-rgb:     255 255 255;
+  --app-bg:          #eef2f7;
+  --app-bg-mid-1:    #e3e9f6;
+  --app-bg-mid-2:    #dfe6f1;
+  --app-bg-gradient: linear-gradient(135deg, #eef2f7 0%, #e4e9f5 25%, #eaf0f6 50%, #e6ecf4 75%, #eef2f7 100%);
+  --logo-invert:     0;
+  --text-primary:    #0f172a;
+  --text-strong:     #020617;
+  /* Versi pekat dari tiap keluarga warna: nuansa terang seperti #a5b4fc
+     atau #fca5a5 praktis hilang di latar putih. */
+  --text-accent:        #4338ca;
+  --text-accent-strong: #3730a3;
+  --text-danger:     #b91c1c;
+  --text-warning:    #b45309;
+  --text-success:    #047857;
+  /* Bayangan gelap tetap benar di latar terang, tapi harus jauh lebih
+     lembut agar tidak terlihat kotor. */
+  --shadow-strength: 0.28;
+
+  --surface-base:    rgba(255, 255, 255, 0.74);
+  --surface-overlay: rgba(255, 255, 255, 0.97);
+
+  /* Skala intensitas jam kerja: di latar terang, indigo pekat justru
+     menenggelamkan teks di dalam sel, jadi rentangnya dinaikkan
+     keterbacaannya dan dibuat lebih pucat di ujung bawah. */
+  --intensity-1:     rgba(99, 102, 241, 0.18);
+  --intensity-2:     rgba(99, 102, 241, 0.34);
+  --intensity-3:     rgba(99, 102, 241, 0.52);
+  --intensity-4:     rgba(139, 92, 246, 0.70);
 }
 
 /* Reusable glass surface utility applied to the Header, Heatmap container,

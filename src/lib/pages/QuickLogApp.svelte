@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../stores/i18n.svelte";
   /**
    * QuickLogApp — Mini window untuk input worklog cepat dari system tray.
    *
@@ -509,18 +510,18 @@
   {#if loading}
     <div class="center-state">
       <div class="spinner"></div>
-      <p>Memuat...</p>
+      <p>{t("tray.loading")}</p>
     </div>
   {:else if !credentials}
     <div class="center-state">
       <p>⚠️ Belum login</p>
-      <p class="hint">Buka aplikasi utama dan login terlebih dahulu.</p>
+      <p class="hint">{t("tray.needLogin")}</p>
     </div>
   {:else}
     <!-- Today + Weekly bar -->
     <div class="today-bar">
       <div class="today-left">
-        <span class="today-label">Hari ini:</span>
+        <span class="today-label">{t("tray.todayIs")}</span>
         <span class="today-hours">{todayHours}h</span>
         {#if timerState?.running}
           <span class="timer-badge">⏱</span>
@@ -548,7 +549,7 @@
         📦 Batch
       </button>
       {#if selectedIssueKey && getEffectiveDurationMinutes() > 0}
-        <button type="button" class="action-chip save-tpl" onclick={saveAsTemplate} title="Simpan sebagai template">
+        <button type="button" class="action-chip save-tpl" onclick={saveAsTemplate} title="{t("tray.saveTemplate")}">
           💾
         </button>
       {/if}
@@ -558,7 +559,7 @@
     {#if showTemplates}
       <div class="templates-panel">
         {#if templates.length === 0}
-          <p class="hint">Belum ada template.</p>
+          <p class="hint">{t("tray.noTemplates")}</p>
         {:else}
           {#each templates as tpl (tpl.id)}
             <div class="template-row">
@@ -575,12 +576,12 @@
 
     <!-- Issue Selection + Search -->
     <div class="section">
-      <label class="section-label">Issue</label>
+      <label class="section-label">{t("tray.issue")}</label>
       <div class="search-wrapper">
         <input
           type="text"
           class="issue-input"
-          placeholder="Ketik issue key atau cari..."
+          placeholder={t("tray.issuePlaceholder")}
           bind:value={selectedIssueKey}
           oninput={() => { selectedSummary = ""; searchQuery = selectedIssueKey; onSearchInput(); }}
           onfocus={() => { if (searchResults.length > 0) showSearchResults = true; }}
@@ -596,7 +597,7 @@
             {/each}
           </div>
         {:else if showSearchResults && searchLoading}
-          <div class="search-dropdown"><p class="hint" style="padding:0.5rem">Mencari...</p></div>
+          <div class="search-dropdown"><p class="hint" style="padding:0.5rem">{t("tray.searching")}</p></div>
         {/if}
       </div>
       {#if selectedSummary}
@@ -605,7 +606,7 @@
 
       {#if recentIssues.length > 0}
         <div class="recent-list">
-          <span class="recent-label">Recent:</span>
+          <span class="recent-label">{t("tray.recent")}</span>
           {#each recentIssues.slice(0, 6) as issue (issue.issueKey)}
             <button type="button" class="recent-chip" class:active={selectedIssueKey === issue.issueKey} onclick={() => selectIssue(issue)} title={issue.summary}>
               {issue.issueKey}
@@ -617,7 +618,7 @@
 
     <!-- Duration -->
     <div class="section">
-      <label class="section-label">Durasi</label>
+      <label class="section-label">{t("tray.duration")}</label>
       <div class="preset-row">
         {#each PRESETS as preset (preset.mins)}
           <button type="button" class="preset-chip" class:active={!useCustom && durationMinutes === preset.mins} onclick={() => selectPreset(preset.mins)}>
@@ -628,7 +629,7 @@
       </div>
       {#if useCustom}
         <div class="custom-duration">
-          <input type="number" min="1" max="1440" step="1" placeholder="Menit" bind:value={customDuration} />
+          <input type="number" min="1" max="1440" step="1" placeholder={t("tray.minutes")} bind:value={customDuration} />
           <span class="duration-hint">menit ({formatDuration(getEffectiveDurationMinutes())})</span>
         </div>
       {/if}
@@ -636,14 +637,14 @@
 
     <!-- Date -->
     <div class="section row">
-      <label class="section-label">Tanggal</label>
+      <label class="section-label">{t("tray.date")}</label>
       <input type="date" class="date-input" bind:value={logDate} />
     </div>
 
     <!-- Description -->
     <div class="section">
-      <label class="section-label">Deskripsi <span class="optional">(opsional)</span></label>
-      <input type="text" class="desc-input" placeholder="Apa yang dikerjakan?" maxlength="500" bind:value={description} />
+      <label class="section-label">{t("log.description")}</label>
+      <input type="text" class="desc-input" placeholder={t("settings.workPlaceholder")} maxlength="500" bind:value={description} />
     </div>
 
     <!-- Batch entries -->
@@ -677,7 +678,7 @@
           {timerState?.running ? "⏹ Stop" : "⏱ Timer"}
         </button>
         {#if timerState?.running}
-          <span class="timer-hint">Berjalan...</span>
+          <span class="timer-hint">{t("tray.running")}</span>
         {:else if timerState && timerState.accumulated_seconds > 0}
           <span class="timer-hint">{formatDuration(Math.round(timerState.accumulated_seconds / 60))}</span>
         {/if}
@@ -703,8 +704,8 @@
     height: 100vh;
     overflow-y: auto;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: #0f172a;
-    color: #f1f5f9;
+    background: var(--app-bg);
+    color: var(--text-primary);
   }
 
   .center-state {
@@ -714,14 +715,14 @@
     justify-content: center;
     height: 100%;
     gap: 0.5rem;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgb(var(--fg-rgb) / 0.7);
   }
 
-  .hint { font-size: 0.75rem; color: rgba(255, 255, 255, 0.45); margin: 0; }
+  .hint { font-size: 0.75rem; color: rgb(var(--fg-rgb) / 0.45); margin: 0; }
 
   .spinner {
     width: 1.5rem; height: 1.5rem;
-    border: 2px solid rgba(255, 255, 255, 0.2);
+    border: 2px solid rgb(var(--fg-rgb) / 0.2);
     border-top-color: #818cf8;
     border-radius: 50%;
     animation: spin 0.6s linear infinite;
@@ -737,16 +738,16 @@
     font-size: 0.75rem;
   }
   .today-left { display: flex; align-items: center; gap: 0.375rem; }
-  .today-label { color: rgba(255, 255, 255, 0.55); }
-  .today-hours { font-weight: 600; color: #a5b4fc; }
-  .timer-badge { color: #86efac; animation: pulse 2s ease-in-out infinite; }
+  .today-label { color: rgb(var(--fg-rgb) / 0.55); }
+  .today-hours { font-weight: 600; color: var(--text-accent); }
+  .timer-badge { color: var(--text-success); animation: pulse 2s ease-in-out infinite; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
   .weekly-progress { display: flex; align-items: center; gap: 0.375rem; }
-  .weekly-text { font-size: 0.6875rem; color: rgba(255, 255, 255, 0.55); }
+  .weekly-text { font-size: 0.6875rem; color: rgb(var(--fg-rgb) / 0.55); }
   .progress-bar {
     width: 3.5rem; height: 0.375rem; border-radius: 1rem;
-    background: rgba(255, 255, 255, 0.1); overflow: hidden;
+    background: rgb(var(--fg-rgb) / 0.1); overflow: hidden;
   }
   .progress-fill {
     height: 100%; border-radius: 1rem;
@@ -758,13 +759,13 @@
   .action-bar { display: flex; flex-wrap: wrap; gap: 0.3rem; }
   .action-chip {
     padding: 0.25rem 0.5rem; border-radius: 0.375rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.04);
-    color: #cbd5e1; font-size: 0.6875rem; cursor: pointer;
+    border: 1px solid rgb(var(--fg-rgb) / 0.12);
+    background: rgb(var(--fg-rgb) / 0.04);
+    color: var(--text-primary); font-size: 0.6875rem; cursor: pointer;
     transition: all 120ms;
   }
   .action-chip:hover { background: rgba(99, 102, 241, 0.12); border-color: rgba(99, 102, 241, 0.35); }
-  .action-chip.active { background: rgba(99, 102, 241, 0.2); border-color: rgba(99, 102, 241, 0.5); color: #a5b4fc; }
+  .action-chip.active { background: rgba(99, 102, 241, 0.2); border-color: rgba(99, 102, 241, 0.5); color: var(--text-accent); }
   .save-tpl { border-color: rgba(34, 197, 94, 0.3); }
   .save-tpl:hover { background: rgba(34, 197, 94, 0.12); }
 
@@ -772,8 +773,8 @@
   .templates-panel {
     display: flex; flex-direction: column; gap: 0.25rem;
     padding: 0.4rem; border-radius: 0.375rem;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgb(var(--fg-rgb) / 0.03);
+    border: 1px solid rgb(var(--fg-rgb) / 0.08);
     max-height: 6rem; overflow-y: auto;
   }
   .template-row { display: flex; align-items: center; gap: 0.25rem; }
@@ -781,16 +782,16 @@
     flex: 1; display: flex; gap: 0.375rem; align-items: center;
     padding: 0.25rem 0.4rem; border-radius: 0.25rem;
     border: none; background: rgba(99, 102, 241, 0.08);
-    color: #e2e8f0; font-size: 0.6875rem; cursor: pointer;
+    color: var(--text-primary); font-size: 0.6875rem; cursor: pointer;
     text-align: left; transition: background 120ms;
   }
   .template-btn:hover { background: rgba(99, 102, 241, 0.18); }
-  .tpl-name { font-weight: 600; color: #a5b4fc; font-family: monospace; }
-  .tpl-detail { color: rgba(255, 255, 255, 0.5); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tpl-name { font-weight: 600; color: var(--text-accent); font-family: monospace; }
+  .tpl-detail { color: rgb(var(--fg-rgb) / 0.5); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tpl-del {
     width: 1.25rem; height: 1.25rem; display: flex; align-items: center; justify-content: center;
     border: none; border-radius: 0.25rem; background: rgba(239, 68, 68, 0.1);
-    color: #fca5a5; font-size: 0.75rem; cursor: pointer;
+    color: var(--text-danger); font-size: 0.75rem; cursor: pointer;
   }
   .tpl-del:hover { background: rgba(239, 68, 68, 0.2); }
 
@@ -799,17 +800,16 @@
   .section.row { flex-direction: row; align-items: center; gap: 0.5rem; }
   .section-label {
     font-size: 0.6875rem; font-weight: 600;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgb(var(--fg-rgb) / 0.6);
     text-transform: uppercase; letter-spacing: 0.03em;
   }
-  .optional { font-weight: 400; text-transform: none; color: rgba(255, 255, 255, 0.35); }
 
   /* Inputs */
   .issue-input, .date-input, .desc-input {
     padding: 0.4rem 0.6rem; border-radius: 0.375rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.05);
-    color: #f1f5f9; font-size: 0.8125rem; outline: none;
+    border: 1px solid rgb(var(--fg-rgb) / 0.12);
+    background: rgb(var(--fg-rgb) / 0.05);
+    color: var(--text-primary); font-size: 0.8125rem; outline: none;
     transition: border-color 150ms, box-shadow 150ms; color-scheme: dark;
     width: 100%; box-sizing: border-box;
   }
@@ -818,67 +818,67 @@
     box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
   }
   .date-input { width: auto; flex: 1; }
-  .issue-summary { font-size: 0.6875rem; color: rgba(255, 255, 255, 0.45); margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .issue-summary { font-size: 0.6875rem; color: rgb(var(--fg-rgb) / 0.45); margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* Search dropdown */
   .search-wrapper { position: relative; }
   .search-dropdown {
     position: absolute; top: 100%; left: 0; right: 0; z-index: 20;
-    background: #1e293b; border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgb(var(--surface-rgb) / 1); border: 1px solid rgb(var(--fg-rgb) / 0.12);
     border-radius: 0.375rem; max-height: 10rem; overflow-y: auto;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    box-shadow: 0 4px 12px rgb(var(--shadow-rgb) / calc(0.4 * var(--shadow-strength)));
   }
   .search-item {
     display: flex; gap: 0.375rem; align-items: center;
     width: 100%; padding: 0.375rem 0.5rem;
-    border: none; background: transparent; color: #e2e8f0;
+    border: none; background: transparent; color: var(--text-primary);
     font-size: 0.75rem; cursor: pointer; text-align: left;
   }
   .search-item:hover { background: rgba(99, 102, 241, 0.15); }
-  .search-key { font-weight: 600; color: #a5b4fc; font-family: monospace; white-space: nowrap; }
-  .search-sum { color: rgba(255, 255, 255, 0.6); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .search-key { font-weight: 600; color: var(--text-accent); font-family: monospace; white-space: nowrap; }
+  .search-sum { color: rgb(var(--fg-rgb) / 0.6); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* Recent */
   .recent-list { display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center; }
-  .recent-label { font-size: 0.625rem; color: rgba(255, 255, 255, 0.4); }
+  .recent-label { font-size: 0.625rem; color: rgb(var(--fg-rgb) / 0.4); }
   .recent-chip {
     padding: 0.2rem 0.4rem; border-radius: 0.25rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.04);
-    color: #94a3b8; font-size: 0.625rem; font-family: monospace;
+    border: 1px solid rgb(var(--fg-rgb) / 0.1);
+    background: rgb(var(--fg-rgb) / 0.04);
+    color: rgb(var(--fg-rgb) / 0.55); font-size: 0.625rem; font-family: monospace;
     cursor: pointer; transition: all 120ms;
   }
   .recent-chip:hover { background: rgba(99, 102, 241, 0.12); border-color: rgba(99, 102, 241, 0.35); }
-  .recent-chip.active { background: rgba(99, 102, 241, 0.2); border-color: rgba(99, 102, 241, 0.5); color: #a5b4fc; }
+  .recent-chip.active { background: rgba(99, 102, 241, 0.2); border-color: rgba(99, 102, 241, 0.5); color: var(--text-accent); }
 
   /* Duration presets */
   .preset-row { display: flex; flex-wrap: wrap; gap: 0.25rem; }
   .preset-chip {
     padding: 0.3rem 0.5rem; border-radius: 0.3rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.04);
-    color: #cbd5e1; font-size: 0.75rem; font-weight: 500;
+    border: 1px solid rgb(var(--fg-rgb) / 0.1);
+    background: rgb(var(--fg-rgb) / 0.04);
+    color: var(--text-primary); font-size: 0.75rem; font-weight: 500;
     cursor: pointer; transition: all 120ms;
   }
   .preset-chip:hover { background: rgba(99, 102, 241, 0.12); border-color: rgba(99, 102, 241, 0.35); }
-  .preset-chip.active { background: rgba(99, 102, 241, 0.2); border-color: rgba(99, 102, 241, 0.5); color: #a5b4fc; font-weight: 600; }
+  .preset-chip.active { background: rgba(99, 102, 241, 0.2); border-color: rgba(99, 102, 241, 0.5); color: var(--text-accent); font-weight: 600; }
 
   .custom-duration { display: flex; align-items: center; gap: 0.4rem; }
   .custom-duration input {
     width: 4.5rem; padding: 0.3rem 0.5rem; border-radius: 0.3rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.05);
-    color: #f1f5f9; font-size: 0.8125rem; outline: none; color-scheme: dark;
+    border: 1px solid rgb(var(--fg-rgb) / 0.12);
+    background: rgb(var(--fg-rgb) / 0.05);
+    color: var(--text-primary); font-size: 0.8125rem; outline: none; color-scheme: dark;
   }
   .custom-duration input:focus { border-color: rgba(99, 102, 241, 0.5); box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12); }
-  .duration-hint { font-size: 0.6875rem; color: rgba(255, 255, 255, 0.4); }
+  .duration-hint { font-size: 0.6875rem; color: rgb(var(--fg-rgb) / 0.4); }
 
   /* Batch */
   .batch-header { display: flex; align-items: center; justify-content: space-between; }
   .add-batch-btn {
     padding: 0.2rem 0.5rem; border-radius: 0.25rem;
     border: 1px dashed rgba(99, 102, 241, 0.4);
-    background: transparent; color: #a5b4fc;
+    background: transparent; color: var(--text-accent);
     font-size: 0.6875rem; cursor: pointer;
   }
   .add-batch-btn:hover { background: rgba(99, 102, 241, 0.1); }
@@ -887,17 +887,17 @@
   .batch-item {
     display: flex; align-items: center; gap: 0.375rem;
     padding: 0.25rem 0.4rem; border-radius: 0.25rem;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgb(var(--fg-rgb) / 0.03);
+    border: 1px solid rgb(var(--fg-rgb) / 0.06);
     font-size: 0.6875rem;
   }
-  .batch-key { font-weight: 600; color: #a5b4fc; font-family: monospace; }
-  .batch-dur { color: #e2e8f0; }
-  .batch-date { color: rgba(255, 255, 255, 0.4); margin-left: auto; }
+  .batch-key { font-weight: 600; color: var(--text-accent); font-family: monospace; }
+  .batch-dur { color: var(--text-primary); }
+  .batch-date { color: rgb(var(--fg-rgb) / 0.4); margin-left: auto; }
   .batch-del {
     width: 1rem; height: 1rem; display: flex; align-items: center; justify-content: center;
     border: none; border-radius: 0.2rem; background: rgba(239, 68, 68, 0.1);
-    color: #fca5a5; font-size: 0.7rem; cursor: pointer;
+    color: var(--text-danger); font-size: 0.7rem; cursor: pointer;
   }
   .batch-del:hover { background: rgba(239, 68, 68, 0.2); }
 
@@ -906,21 +906,21 @@
   .timer-row { display: flex; align-items: center; gap: 0.5rem; }
   .timer-btn {
     padding: 0.3rem 0.6rem; border-radius: 0.375rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.04);
-    color: #e2e8f0; font-size: 0.75rem; cursor: pointer; transition: all 120ms;
+    border: 1px solid rgb(var(--fg-rgb) / 0.12);
+    background: rgb(var(--fg-rgb) / 0.04);
+    color: var(--text-primary); font-size: 0.75rem; cursor: pointer; transition: all 120ms;
   }
   .timer-btn:hover:not(:disabled) { background: rgba(99, 102, 241, 0.12); border-color: rgba(99, 102, 241, 0.35); }
-  .timer-btn.running { background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.35); color: #fca5a5; }
+  .timer-btn.running { background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.35); color: var(--text-danger); }
   .timer-btn.running:hover { background: rgba(239, 68, 68, 0.2); }
   .timer-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .timer-hint { font-size: 0.6875rem; color: rgba(255, 255, 255, 0.45); }
+  .timer-hint { font-size: 0.6875rem; color: rgb(var(--fg-rgb) / 0.45); }
 
   .result {
     font-size: 0.75rem; padding: 0.35rem 0.5rem; border-radius: 0.25rem; margin: 0;
   }
-  .result.success { background: rgba(34, 197, 94, 0.12); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.25); }
-  .result.error { background: rgba(239, 68, 68, 0.12); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.25); }
+  .result.success { background: rgba(34, 197, 94, 0.12); color: var(--text-success); border: 1px solid rgba(34, 197, 94, 0.25); }
+  .result.error { background: rgba(239, 68, 68, 0.12); color: var(--text-danger); border: 1px solid rgba(239, 68, 68, 0.25); }
 
   .submit-btn {
     width: 100%; padding: 0.5rem 0.75rem; border-radius: 0.5rem;

@@ -151,10 +151,10 @@
       ),
       linear-gradient(
         135deg,
-        #0a0f1f 0%,
-        #0f1530 30%,
-        #0c1426 60%,
-        #0a0f1f 100%
+        var(--app-bg) 0%,
+        var(--app-bg-mid-1) 30%,
+        var(--app-bg-mid-2) 60%,
+        var(--app-bg) 100%
       );
   }
 
@@ -166,7 +166,7 @@
     fill: none;
     /* Source renders in `text-white` for dark mode; we follow that and
      * let `currentColor` carry the stroke. */
-    color: rgba(255, 255, 255, 0.95);
+    color: rgb(var(--fg-rgb) / 0.95);
     transition:
       transform 1100ms cubic-bezier(0.65, 0, 0.35, 1),
       opacity 900ms ease-out;
@@ -241,9 +241,9 @@
     inset: 0;
     background: radial-gradient(
       ellipse at center,
-      rgba(0, 0, 0, 0) 0%,
-      rgba(0, 0, 0, 0.15) 55%,
-      rgba(0, 0, 0, 0.55) 100%
+      rgb(var(--shadow-rgb) / calc(0 * var(--shadow-strength))) 0%,
+      rgb(var(--shadow-rgb) / calc(0.15 * var(--shadow-strength))) 55%,
+      rgb(var(--shadow-rgb) / calc(0.55 * var(--shadow-strength))) 100%
     );
   }
 

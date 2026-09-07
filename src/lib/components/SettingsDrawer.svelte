@@ -30,6 +30,7 @@
    * `saveWorkspaceSettings` (R14.6).
    */
 
+  import { t } from "../stores/i18n.svelte";
   import { tick, untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import {
@@ -53,8 +54,21 @@
     isAutostartEnabled,
     setAutostart,
   } from "../stores/autostartStore";
+  import {
+    loadBreakConfig,
+    saveBreakConfig,
+    DEFAULT_BREAK_CONFIG,
+    parseHHmm,
+    type BreakConfig,
+  } from "../stores/breakStore";
   import { checkForUpdate, currentVersion } from "../stores/updaterStore";
   import { requestUpdateCheck } from "../stores/updateSignal.svelte";
+  import {
+    themePreference,
+    setThemePreference,
+    resolvedTheme,
+    type ThemePreference,
+  } from "../stores/themeStore.svelte";
 
   interface Props {
     open: boolean;
@@ -66,6 +80,9 @@
     onSettingsSaved: (next: WorkspaceSettings) => void;
     onCredentialsSaved: (next: Credentials, isCloud: boolean) => void;
     onAutoScheduleSaved: (next: AutoScheduleConfig) => void;
+    /** Dipanggil setelah jam istirahat disimpan, supaya kalender langsung
+     *  memakai nilai baru tanpa menunggu aplikasi dibuka ulang. */
+    onBreakSaved: (next: BreakConfig) => void;
   }
 
   let {
@@ -78,6 +95,7 @@
     onSettingsSaved,
     onCredentialsSaved,
     onAutoScheduleSaved,
+    onBreakSaved,
   }: Props = $props();
 
   // Day-of-week labels (0=Minggu … 6=Sabtu), Indonesian short form.
@@ -198,6 +216,13 @@
         connStatus = "idle";
         connMessage = "";
       });
+      void (async () => {
+        const b = await loadBreakConfig();
+        breakEnabled = b.enabled;
+        breakStart = b.start;
+        breakEnd = b.end;
+        breakFridayEnd = b.fridayEnd;
+      })();
 
       // Reflect the actual OS autostart entry (async; no-op off-Tauri).
       void (async () => {
@@ -357,6 +382,7 @@
   /** Footer "Save": persist auto-schedule (always) + workspace prefs
    *  (validated). Credentials use their own Test & Save button. */
   async function saveAll(): Promise<void> {
+    await persistBreak();
     await persistAutoSchedule();
     await saveWorkspacePrefs();
   }
@@ -368,6 +394,61 @@
       email.trim().length > 0 &&
       apiToken.trim().length > 0
   );
+
+  // --- Jam istirahat -------------------------------------------------------
+
+  let breakEnabled = $state<boolean>(DEFAULT_BREAK_CONFIG.enabled);
+  let breakStart = $state<string>(DEFAULT_BREAK_CONFIG.start);
+  let breakEnd = $state<string>(DEFAULT_BREAK_CONFIG.end);
+  let breakFridayEnd = $state<string>(DEFAULT_BREAK_CONFIG.fridayEnd);
+
+  /** Pesan galat inline; jam selesai harus setelah jam mulai. */
+  const breakError = $derived.by(() => {
+    if (!breakEnabled) return null;
+    const s = parseHHmm(breakStart);
+    const e = parseHHmm(breakEnd);
+    if (s === null || e === null) return "Format jam harus HH:mm.";
+    if (e <= s) return "Jam selesai harus setelah jam mulai.";
+    if (breakFridayEnd.trim() !== "") {
+      const f = parseHHmm(breakFridayEnd);
+      if (f === null) return "Format jam Jumat harus HH:mm.";
+      if (f <= s) return "Jam selesai Jumat harus setelah jam mulai.";
+    }
+    return null;
+  });
+
+  async function persistBreak(): Promise<void> {
+    if (breakError) return;
+    const next: BreakConfig = {
+      enabled: breakEnabled,
+      start: breakStart,
+      end: breakEnd,
+      fridayEnd: breakFridayEnd,
+    };
+    await saveBreakConfig(next);
+    // Tanpa ini nilainya tersimpan tapi kalender tetap memakai konfigurasi
+    // lama sampai aplikasi dibuka ulang — mematikan opsi ini terlihat tidak
+    // berpengaruh apa-apa.
+    onBreakSaved(next);
+  }
+
+  // --- Tema ----------------------------------------------------------------
+
+  const THEME_OPTIONS: ReadonlyArray<{
+    value: ThemePreference;
+    labelKey: string;
+    icon: string;
+  }> = [
+    { value: "auto", labelKey: "settings.themeAuto", icon: "M12 3a9 9 0 1 0 9 9 9 9 0 0 0-9-9zm0 0v18" },
+    { value: "light", labelKey: "settings.themeLight", icon: "M12 4V2M12 22v-2M4 12H2M22 12h-2M6 6 4.5 4.5M19.5 19.5 18 18M6 18l-1.5 1.5M19.5 4.5 18 6M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" },
+    { value: "dark", labelKey: "settings.themeDark", icon: "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" },
+  ];
+
+  // Tema diterapkan seketika saat dipilih (bukan menunggu tombol Save),
+  // karena efeknya langsung terlihat — menunda justru membingungkan.
+  function chooseTheme(next: ThemePreference): void {
+    setThemePreference(next);
+  }
 
   // --- Tentang aplikasi ---------------------------------------------------
 
@@ -444,17 +525,17 @@
       class:open={slidIn}
       role="dialog"
       aria-modal="true"
-      aria-label="Workspace settings"
+      aria-label={t("settings.panelLabel")}
       tabindex="-1"
       bind:this={panelEl}
       onkeydown={onPanelKeyDown}
     >
       <header class="drawer-header">
-        <h2 class="drawer-title">Settings</h2>
+        <h2 class="drawer-title">{t("settings.title")}</h2>
         <button
           type="button"
           class="close-btn"
-          aria-label="Close settings"
+          aria-label={t("settings.close")}
           onclick={onClose}
         >
           <svg
@@ -477,11 +558,11 @@
         <!-- Section 1 — Jira Connection (R4.1, R4.2)                     -->
         <!-- ============================================================ -->
         <section class="drawer-section" aria-labelledby="section-jira-connection">
-          <h3 id="section-jira-connection" class="section-title">Jira Connection</h3>
+          <h3 id="section-jira-connection" class="section-title">{t("settings.connection")}</h3>
 
           <div class="form-field">
-            <span class="field-label">Deployment</span>
-            <div class="radio-row" role="radiogroup" aria-label="Jira deployment">
+            <span class="field-label">{t("settings.deployment")}</span>
+            <div class="radio-row" role="radiogroup" aria-label={t("settings.deploymentLabel")}>
               <label class="radio-label">
                 <input
                   type="radio"
@@ -489,7 +570,7 @@
                   bind:group={isCloud}
                   value={true}
                 />
-                <span>Cloud</span>
+                <span>{t("settings.cloud")}</span>
               </label>
               <label class="radio-label">
                 <input
@@ -498,13 +579,13 @@
                   bind:group={isCloud}
                   value={false}
                 />
-                <span>Server</span>
+                <span>{t("settings.server")}</span>
               </label>
             </div>
           </div>
 
           <div class="form-field">
-            <label for="settings-base-url">Jira URL</label>
+            <label for="settings-base-url">{t("login.jiraUrl")}</label>
             <input
               id="settings-base-url"
               type="url"
@@ -517,23 +598,23 @@
           </div>
 
           <div class="form-field">
-            <label for="settings-email">Email</label>
+            <label for="settings-email">{t("login.email")}</label>
             <input
               id="settings-email"
               type="email"
               bind:value={email}
-              placeholder="user@company.com"
+              placeholder={t("settings.emailPlaceholder")}
               autocomplete="email"
             />
           </div>
 
           <div class="form-field">
-            <label for="settings-api-token">API Token</label>
+            <label for="settings-api-token">{t("login.apiToken")}</label>
             <input
               id="settings-api-token"
               type="password"
               bind:value={apiToken}
-              placeholder="Enter your API token"
+              placeholder={t("login.tokenPlaceholder")}
               autocomplete="current-password"
             />
           </div>
@@ -570,15 +651,15 @@
         <!-- Section 2 — Reminder (R4.3)                                   -->
         <!-- ============================================================ -->
         <section class="drawer-section" aria-labelledby="section-reminder">
-          <h3 id="section-reminder" class="section-title">Reminder</h3>
+          <h3 id="section-reminder" class="section-title">{t("settings.reminder")}</h3>
 
           <label class="checkbox-label">
             <input type="checkbox" bind:checked={reminderEnabled} />
-            <span>Enable daily reminder</span>
+            <span>{t("settings.reminderEnable")}</span>
           </label>
 
           <div class="form-field">
-            <label for="settings-reminder-hour">Reminder hour (24h)</label>
+            <label for="settings-reminder-hour">{t("settings.reminderHour")}</label>
             <input
               id="settings-reminder-hour"
               type="number"
@@ -607,10 +688,10 @@
         <!-- Section 3 — Target Hours (R4.4)                               -->
         <!-- ============================================================ -->
         <section class="drawer-section" aria-labelledby="section-target-hours">
-          <h3 id="section-target-hours" class="section-title">Target Hours</h3>
+          <h3 id="section-target-hours" class="section-title">{t("settings.targetHours")}</h3>
 
           <div class="form-field">
-            <label for="settings-target-hours">Daily target (hours)</label>
+            <label for="settings-target-hours">{t("settings.dailyTarget")}</label>
             <input
               id="settings-target-hours"
               type="number"
@@ -640,25 +721,22 @@
         <!-- ============================================================ -->
         <section class="drawer-section" aria-labelledby="section-auto-schedule">
           <h3 id="section-auto-schedule" class="section-title">
-            Penjadwalan Otomatis
+            {t("settings.autoSchedule")}
           </h3>
           <p class="section-hint">
-            Menyiapkan draf kegiatan berulang pada hari kerja terpilih. Draf
-            tampil di kalender untuk kamu periksa &amp; ubah dulu, lalu
-            dikirim ke Jira lewat tombol "Submit changes" — tidak ada yang
-            terkirim otomatis. Berjalan saat aplikasi dibuka.
+            {t("settings.autoHint")}
           </p>
 
           <label class="checkbox-label">
             <input type="checkbox" bind:checked={autoEnabled} />
-            <span>Aktifkan penjadwalan otomatis</span>
+            <span>{t("settings.autoEnable")}</span>
           </label>
 
           <fieldset class="auto-fieldset" disabled={!autoEnabled}>
             <!-- Days of week -->
             <div class="form-field">
-              <span class="field-label">Hari berlaku</span>
-              <div class="day-toggle-row" role="group" aria-label="Hari berlaku">
+              <span class="field-label">{t("settings.activeDays")}</span>
+              <div class="day-toggle-row" role="group" aria-label={t("settings.activeDays")}>
                 {#each DAY_LABELS as label, day (day)}
                   <button
                     type="button"
@@ -675,17 +753,17 @@
 
             <label class="checkbox-label">
               <input type="checkbox" bind:checked={autoSkipHolidays} />
-              <span>Lewati hari libur nasional</span>
+              <span>{t("settings.skipHolidays")}</span>
             </label>
 
             <label class="checkbox-label">
               <input type="checkbox" bind:checked={autoCatchUp} />
-              <span>Isi juga hari kerja yang terlewat</span>
+              <span>{t("settings.catchUp")}</span>
             </label>
 
             {#if autoCatchUp}
               <div class="form-field">
-                <label for="auto-catchup-max">Maksimal hari ke belakang</label>
+                <label for="auto-catchup-max">{t("settings.catchUpMax")}</label>
                 <input
                   id="auto-catchup-max"
                   type="number"
@@ -700,13 +778,10 @@
             <div class="form-field">
               <label class="checkbox-label">
                 <input type="checkbox" bind:checked={autoStartOnLogin} />
-                <span>Jalankan saat login &amp; tetap aktif di background</span>
+                <span>{t("settings.runAtLogin")}</span>
               </label>
               <p class="section-hint">
-                Aplikasi dibuka otomatis (tersembunyi di tray) saat kamu login,
-                sehingga penjadwalan berjalan tanpa perlu dibuka manual. Menutup
-                jendela akan menyembunyikan ke tray — keluar penuh lewat menu
-                tray “Keluar”.
+                {t("settings.autostartHint")}
               </p>
               {#if autoStartError}
                 <p class="field-error" role="alert">{autoStartError}</p>
@@ -715,10 +790,10 @@
 
             <!-- Activities -->
             <div class="form-field">
-              <span class="field-label">Kegiatan harian</span>
+              <span class="field-label">{t("settings.activities")}</span>
               {#if autoActivities.length === 0}
                 <p class="section-hint">
-                  Belum ada kegiatan. Tambahkan minimal satu.
+                  {t("settings.noActivities")}
                 </p>
               {/if}
 
@@ -727,17 +802,17 @@
                   <div class="activity-card">
                     <div class="activity-grid">
                       <label class="mini-field mini-issue">
-                        <span>Issue key</span>
+                        <span>{t("settings.issueKey")}</span>
                         <input
                           type="text"
-                          placeholder="mis. PROJ-123"
+                          placeholder={t("settings.issueKeyPlaceholder")}
                           autocomplete="off"
                           spellcheck="false"
                           bind:value={activity.issueKey}
                         />
                       </label>
                       <label class="mini-field mini-hours">
-                        <span>Jam</span>
+                        <span>{t("settings.hours")}</span>
                         <input
                           type="number"
                           min="0.25"
@@ -747,20 +822,20 @@
                         />
                       </label>
                       <label class="mini-field mini-time">
-                        <span>Mulai</span>
+                        <span>{t("settings.startTime")}</span>
                         <input type="time" bind:value={activity.startTime} />
                       </label>
                     </div>
                     <div class="activity-date-range">
                       <label class="mini-field mini-date">
-                        <span>Berlaku dari</span>
+                        <span>{t("settings.validFrom")}</span>
                         <input
                           type="date"
                           bind:value={activity.startDate}
                         />
                       </label>
                       <label class="mini-field mini-date">
-                        <span>Sampai</span>
+                        <span>{t("settings.validUntil")}</span>
                         <input
                           type="date"
                           bind:value={activity.endDate}
@@ -768,10 +843,10 @@
                       </label>
                     </div>
                     <label class="mini-field">
-                      <span>Deskripsi (opsional)</span>
+                      <span>{t("settings.descriptionOptional")}</span>
                       <input
                         type="text"
-                        placeholder="Apa yang dikerjakan?"
+                        placeholder={t("settings.workPlaceholder")}
                         maxlength="500"
                         bind:value={activity.description}
                       />
@@ -779,10 +854,10 @@
                     <button
                       type="button"
                       class="activity-remove"
-                      aria-label="Hapus kegiatan"
+                      aria-label={t("settings.removeActivity")}
                       onclick={() => removeAutoActivity(activity.id)}
                     >
-                      Hapus
+                      {t("common.delete")}
                     </button>
                   </div>
                 {/each}
@@ -793,7 +868,7 @@
                 class="add-activity-btn"
                 onclick={addAutoActivity}
               >
-                + Tambah kegiatan
+                {t("settings.addActivity")}
               </button>
             </div>
           </fieldset>
@@ -802,14 +877,104 @@
         <!-- ============================================================ -->
         <!-- Section 5 — Tentang aplikasi                                 -->
         <!-- ============================================================ -->
+        <!-- ============================================================ -->
+        <!-- Section 5 — Jam istirahat                                    -->
+        <!-- ============================================================ -->
+        <section class="drawer-section" aria-labelledby="section-break">
+          <h3 id="section-break" class="section-title">{t("settings.break")}</h3>
+          <p class="section-hint">
+            {t("settings.breakHint")}
+          </p>
+
+          <label class="checkbox-label">
+            <input type="checkbox" bind:checked={breakEnabled} />
+            <span>{t("settings.breakEnable")}</span>
+          </label>
+
+          <fieldset class="auto-fieldset" disabled={!breakEnabled}>
+            <div class="break-times">
+              <div class="form-field">
+                <label for="break-start">{t("settings.breakStart")}</label>
+                <input id="break-start" type="time" bind:value={breakStart} />
+              </div>
+              <div class="form-field">
+                <label for="break-end">{t("settings.breakEnd")}</label>
+                <input id="break-end" type="time" bind:value={breakEnd} />
+              </div>
+              <div class="form-field">
+                <label for="break-friday">{t("settings.breakFriday")}</label>
+                <input
+                  id="break-friday"
+                  type="time"
+                  bind:value={breakFridayEnd}
+                />
+              </div>
+            </div>
+            <p class="section-hint">
+              {t("settings.breakFridayHint")}
+            </p>
+            {#if breakError}
+              <p class="field-error" role="alert">{breakError}</p>
+            {/if}
+          </fieldset>
+        </section>
+
+        <!-- ============================================================ -->
+        <!-- Section 6 — Tampilan (tema)                                  -->
+        <!-- ============================================================ -->
+        <section class="drawer-section" aria-labelledby="section-theme">
+          <h3 id="section-theme" class="section-title">{t("settings.appearance")}</h3>
+          <p class="section-hint">
+            {t("settings.themeHint")}
+          </p>
+
+          <div class="theme-switch" role="radiogroup" aria-label={t("settings.themeLabel")}>
+            {#each THEME_OPTIONS as opt (opt.value)}
+              {@const checked = themePreference() === opt.value}
+              <button
+                type="button"
+                role="radio"
+                aria-checked={checked}
+                class="theme-chip"
+                class:selected={checked}
+                onclick={() => chooseTheme(opt.value)}
+              >
+                <svg
+                  class="theme-chip-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d={opt.icon} />
+                </svg>
+                <span>{t(opt.labelKey)}</span>
+              </button>
+            {/each}
+          </div>
+
+          {#if themePreference() === "auto"}
+            <p class="section-hint">
+              {t("settings.systemUsing")}
+              <strong>{resolvedTheme() === "dark" ? "gelap" : "terang"}</strong>.
+            </p>
+          {/if}
+        </section>
+
+        <!-- ============================================================ -->
+        <!-- Section 6 — Tentang aplikasi                                 -->
+        <!-- ============================================================ -->
         <section class="drawer-section" aria-labelledby="section-about">
-          <h3 id="section-about" class="section-title">Tentang</h3>
+          <h3 id="section-about" class="section-title">{t("settings.about")}</h3>
 
           <dl class="about-list">
-            <dt>Aplikasi</dt>
+            <dt>{t("settings.app")}</dt>
             <dd>JIRA Logwork</dd>
 
-            <dt>Versi</dt>
+            <dt>{t("settings.version")}</dt>
             <dd>
               {#if appVersion}
                 <span class="about-version">{appVersion}</span>
@@ -818,10 +983,10 @@
               {/if}
             </dd>
 
-            <dt>Pembuat</dt>
+            <dt>{t("settings.author")}</dt>
             <dd>{APP_AUTHOR}</dd>
 
-            <dt>Kode sumber</dt>
+            <dt>{t("settings.sourceCode")}</dt>
             <dd>
               <a
                 class="about-link"
@@ -842,24 +1007,24 @@
               onclick={handleCheckUpdate}
               disabled={updateChecking}
             >
-              {updateChecking ? "Mengecek…" : "Cek pembaruan"}
+              {updateChecking ? t("settings.checking") : t("settings.checkUpdate")}
             </button>
             {#if updateStatus}
               <span class="about-update-status">{updateStatus}</span>
             {/if}
           </div>
           <p class="section-hint">
-            Pembaruan juga dicek otomatis setiap kali aplikasi dibuka.
+            {t("settings.autoChecked")}
           </p>
         </section>
       </div>
 
       <footer class="drawer-footer">
         <button type="button" class="secondary-btn" onclick={onClose}>
-          Cancel
+          {t("common.cancel")}
         </button>
         <button type="button" class="primary-btn" onclick={saveAll}>
-          Save
+          {t("common.save")}
         </button>
       </footer>
     </div>
@@ -881,14 +1046,14 @@
     position: fixed;
     inset: 0;
     z-index: 50;
-    background-color: rgba(15, 23, 42, 0);
+    background-color: rgb(var(--surface-rgb) / 0);
     transition: background-color 250ms cubic-bezier(0.22, 1, 0.36, 1);
     display: flex;
     justify-content: flex-end;
   }
 
   .drawer-backdrop.visible {
-    background-color: rgba(15, 23, 42, 0.55);
+    background-color: rgb(var(--surface-rgb) / 0.55);
   }
 
   .drawer-panel {
@@ -927,7 +1092,7 @@
     margin: 0;
     font-size: 1.125rem;
     font-weight: 700;
-    color: #f1f5f9;
+    color: var(--text-primary);
     letter-spacing: -0.01em;
   }
 
@@ -940,7 +1105,7 @@
     border-radius: 0.5rem;
     border: 1px solid transparent;
     background: transparent;
-    color: rgba(255, 255, 255, 0.75);
+    color: rgb(var(--fg-rgb) / 0.75);
     cursor: pointer;
     transition:
       background-color 200ms ease-out,
@@ -954,9 +1119,9 @@
   }
 
   .close-btn:hover {
-    background: rgba(255, 255, 255, 0.07);
-    border-color: rgba(255, 255, 255, 0.15);
-    color: #ffffff;
+    background: rgb(var(--fg-rgb) / 0.07);
+    border-color: rgb(var(--fg-rgb) / 0.15);
+    color: var(--text-strong);
   }
 
   .close-btn:focus-visible {
@@ -992,6 +1157,61 @@
     gap: 0.875rem;
   }
 
+  .break-times {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+  }
+
+  /* --- Pemilih tema ----------------------------------------------------- */
+
+  .theme-switch {
+    display: flex;
+    gap: 0.375rem;
+  }
+
+  .theme-chip {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4375rem;
+    padding: 0.5rem 0.625rem;
+    border-radius: 0.625rem;
+    border: 1px solid var(--glass-border);
+    background: rgb(var(--fg-rgb) / 0.03);
+    color: rgb(var(--fg-rgb) / 0.6);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    outline: none;
+    transition:
+      background 180ms ease-out,
+      color 180ms ease-out,
+      border-color 180ms ease-out;
+  }
+
+  .theme-chip:hover:not(.selected) {
+    background: rgb(var(--fg-rgb) / 0.07);
+    color: rgb(var(--fg-rgb) / 0.85);
+  }
+
+  .theme-chip.selected {
+    background: rgba(99, 102, 241, 0.18);
+    border-color: rgba(99, 102, 241, 0.55);
+    color: var(--text-primary);
+  }
+
+  .theme-chip:focus-visible {
+    box-shadow: var(--focus-ring);
+  }
+
+  .theme-chip-icon {
+    width: 0.9375rem;
+    height: 0.9375rem;
+    flex-shrink: 0;
+  }
+
   /* --- Tentang aplikasi ------------------------------------------------ */
 
   .about-list {
@@ -1003,12 +1223,12 @@
   }
 
   .about-list dt {
-    color: rgba(255, 255, 255, 0.5);
+    color: rgb(var(--fg-rgb) / 0.5);
   }
 
   .about-list dd {
     margin: 0;
-    color: #e2e8f0;
+    color: var(--text-primary);
     min-width: 0;
     overflow-wrap: anywhere;
   }
@@ -1019,11 +1239,11 @@
   }
 
   .about-muted {
-    color: rgba(255, 255, 255, 0.4);
+    color: rgb(var(--fg-rgb) / 0.4);
   }
 
   .about-link {
-    color: #a5b4fc;
+    color: var(--text-accent);
     text-decoration: none;
   }
 
@@ -1034,7 +1254,7 @@
   .about-copyright {
     margin: 0;
     font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgb(var(--fg-rgb) / 0.4);
   }
 
   .about-update {
@@ -1050,7 +1270,7 @@
 
   .about-update-status {
     font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.65);
+    color: rgb(var(--fg-rgb) / 0.65);
   }
 
   .section-title {
@@ -1059,7 +1279,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgb(var(--fg-rgb) / 0.6);
   }
 
   /* ----------------------------------------------------------------------
@@ -1077,7 +1297,7 @@
   .field-label {
     font-size: 0.8125rem;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.8);
+    color: rgb(var(--fg-rgb) / 0.8);
     letter-spacing: 0.025em;
   }
 
@@ -1088,9 +1308,9 @@
     width: 100%;
     padding: 0.625rem 0.875rem;
     border-radius: 0.625rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.06);
-    color: #f1f5f9;
+    border: 1px solid rgb(var(--fg-rgb) / 0.12);
+    background: rgb(var(--fg-rgb) / 0.06);
+    color: var(--text-primary);
     font-size: 0.9375rem;
     transition:
       border-color 200ms ease-out,
@@ -1100,13 +1320,13 @@
   }
 
   .form-field input::placeholder {
-    color: rgba(255, 255, 255, 0.35);
+    color: rgb(var(--fg-rgb) / 0.35);
   }
 
   .form-field input:focus {
     border-color: rgba(99, 102, 241, 0.6);
     box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
-    background: rgba(255, 255, 255, 0.08);
+    background: rgb(var(--fg-rgb) / 0.08);
   }
 
   .form-field input[aria-invalid="true"] {
@@ -1117,7 +1337,7 @@
   .field-error {
     margin: 0;
     font-size: 0.75rem;
-    color: #fca5a5;
+    color: var(--text-danger);
   }
 
   /* Radios / checkboxes */
@@ -1133,7 +1353,7 @@
     align-items: center;
     gap: 0.5rem;
     font-size: 0.875rem;
-    color: rgba(255, 255, 255, 0.85);
+    color: rgb(var(--fg-rgb) / 0.85);
     cursor: pointer;
   }
 
@@ -1159,13 +1379,13 @@
   .status-success {
     background: rgba(34, 197, 94, 0.12);
     border: 1px solid rgba(34, 197, 94, 0.3);
-    color: #bbf7d0;
+    color: var(--text-success);
   }
 
   .status-error {
     background: rgba(239, 68, 68, 0.12);
     border: 1px solid rgba(239, 68, 68, 0.3);
-    color: #fca5a5;
+    color: var(--text-danger);
   }
 
   /* ----------------------------------------------------------------------
@@ -1184,7 +1404,7 @@
       var(--accent-from) 0%,
       var(--accent-to) 100%
     );
-    color: #ffffff;
+    color: var(--text-on-accent);
     font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
@@ -1218,9 +1438,9 @@
   .secondary-btn {
     padding: 0.625rem 1rem;
     border-radius: 0.625rem;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.9);
+    border: 1px solid rgb(var(--fg-rgb) / 0.15);
+    background: rgb(var(--fg-rgb) / 0.06);
+    color: rgb(var(--fg-rgb) / 0.9);
     font-size: 0.875rem;
     font-weight: 500;
     cursor: pointer;
@@ -1231,8 +1451,8 @@
   }
 
   .secondary-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.22);
+    background: rgb(var(--fg-rgb) / 0.1);
+    border-color: rgb(var(--fg-rgb) / 0.22);
   }
 
   .secondary-btn:focus-visible {
@@ -1249,7 +1469,7 @@
     margin: 0;
     font-size: 0.75rem;
     line-height: 1.45;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgb(var(--fg-rgb) / 0.5);
   }
 
   .auto-fieldset {
@@ -1279,9 +1499,9 @@
     min-width: 2.25rem;
     padding: 0.4375rem 0.25rem;
     border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.75);
+    border: 1px solid rgb(var(--fg-rgb) / 0.12);
+    background: rgb(var(--fg-rgb) / 0.05);
+    color: rgb(var(--fg-rgb) / 0.75);
     font-size: 0.75rem;
     font-weight: 600;
     cursor: pointer;
@@ -1293,13 +1513,13 @@
   }
 
   .day-toggle:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgb(var(--fg-rgb) / 0.1);
   }
 
   .day-toggle.active {
     background: rgba(99, 102, 241, 0.25);
     border-color: rgba(99, 102, 241, 0.6);
-    color: #e0e7ff;
+    color: var(--text-accent-strong);
   }
 
   .day-toggle:focus-visible {
@@ -1320,8 +1540,8 @@
     gap: 0.5rem;
     padding: 0.75rem;
     border-radius: 0.625rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgb(var(--fg-rgb) / 0.1);
+    background: rgb(var(--fg-rgb) / 0.04);
   }
 
   .activity-grid {
@@ -1346,7 +1566,7 @@
   .mini-field > span {
     font-size: 0.6875rem;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.55);
+    color: rgb(var(--fg-rgb) / 0.55);
     letter-spacing: 0.02em;
   }
 
@@ -1355,9 +1575,9 @@
     box-sizing: border-box;
     padding: 0.5rem 0.625rem;
     border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.06);
-    color: #f1f5f9;
+    border: 1px solid rgb(var(--fg-rgb) / 0.12);
+    background: rgb(var(--fg-rgb) / 0.06);
+    color: var(--text-primary);
     font-size: 0.875rem;
     font-family: inherit;
     color-scheme: dark;
@@ -1369,13 +1589,13 @@
   }
 
   .mini-field input::placeholder {
-    color: rgba(255, 255, 255, 0.35);
+    color: rgb(var(--fg-rgb) / 0.35);
   }
 
   .mini-field input:focus {
     border-color: rgba(99, 102, 241, 0.6);
     box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
-    background: rgba(255, 255, 255, 0.08);
+    background: rgb(var(--fg-rgb) / 0.08);
   }
 
   .activity-remove {
@@ -1384,7 +1604,7 @@
     border-radius: 0.5rem;
     border: 1px solid rgba(239, 68, 68, 0.3);
     background: rgba(239, 68, 68, 0.12);
-    color: #fca5a5;
+    color: var(--text-danger);
     font-size: 0.75rem;
     font-weight: 600;
     cursor: pointer;
@@ -1404,9 +1624,9 @@
     align-self: flex-start;
     padding: 0.5rem 0.875rem;
     border-radius: 0.5rem;
-    border: 1px dashed rgba(255, 255, 255, 0.22);
+    border: 1px dashed rgb(var(--fg-rgb) / 0.22);
     background: transparent;
-    color: rgba(255, 255, 255, 0.85);
+    color: rgb(var(--fg-rgb) / 0.85);
     font-size: 0.8125rem;
     font-weight: 600;
     cursor: pointer;
@@ -1417,7 +1637,7 @@
   }
 
   .add-activity-btn:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: rgb(var(--fg-rgb) / 0.06);
     border-color: rgba(99, 102, 241, 0.5);
   }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../stores/i18n.svelte";
   import type { RecentIssue } from "../stores/recentIssuesStore";
   import { RECENT_ISSUES_MAX } from "../stores/recentIssuesStore";
 
@@ -16,10 +17,10 @@
 </script>
 
 <section class="recent-issues" aria-labelledby="recent-issues-heading">
-  <h3 id="recent-issues-heading" class="heading">Recent Issues</h3>
+  <h3 id="recent-issues-heading" class="heading">{t("recent.title")}</h3>
 
   {#if visibleIssues.length === 0}
-    <p class="empty-state">No recent issues. Use the search below to find one.</p>
+    <p class="empty-state">{t("recent.empty")}</p>
   {:else}
     <ul class="list" role="list">
       {#each visibleIssues as issue (issue.issueKey)}
@@ -53,7 +54,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgb(var(--fg-rgb) / 0.6);
     margin: 0;
   }
 
@@ -63,7 +64,7 @@
     border-radius: 0.625rem;
     background: var(--glass-bg);
     border: 1px dashed var(--glass-border);
-    color: rgba(255, 255, 255, 0.55);
+    color: rgb(var(--fg-rgb) / 0.55);
     font-size: 0.8125rem;
     line-height: 1.4;
   }
@@ -75,7 +76,10 @@
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
-    max-height: 8.5rem;
+    /* Kolom kiri kini punya ruang vertikal lega, jadi batasnya dinaikkan:
+       8.5rem hanya memuat tiga baris dan memaksa scroll bersarang di dalam
+       popover yang juga bisa di-scroll. */
+    max-height: 16rem;
     overflow-y: auto;
   }
 
@@ -86,10 +90,10 @@
     gap: 0.625rem;
     padding: 0.5rem 0.75rem;
     border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid rgb(var(--fg-rgb) / 0.08);
     border-left: 3px solid transparent;
-    background: rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.92);
+    background: rgb(var(--fg-rgb) / 0.04);
+    color: rgb(var(--fg-rgb) / 0.92);
     font: inherit;
     text-align: left;
     cursor: pointer;
@@ -102,8 +106,8 @@
   }
 
   .row:hover {
-    background: rgba(255, 255, 255, 0.07);
-    border-color: rgba(255, 255, 255, 0.18);
+    background: rgb(var(--fg-rgb) / 0.07);
+    border-color: rgb(var(--fg-rgb) / 0.18);
   }
 
   /* Focus ring distinct from hover, per R11.4. */
@@ -116,7 +120,7 @@
     background: rgba(99, 102, 241, 0.18);
     border-color: rgba(99, 102, 241, 0.35);
     border-left-color: var(--accent-from);
-    color: #ffffff;
+    color: var(--text-on-accent);
   }
 
   .row.selected:hover {
@@ -127,20 +131,20 @@
     font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
     font-size: 0.8125rem;
     font-weight: 600;
-    color: #c7d2fe;
+    color: var(--text-accent-strong);
     flex-shrink: 0;
     letter-spacing: 0.01em;
   }
 
   .row.selected .issue-key {
-    color: #e0e7ff;
+    color: var(--text-accent-strong);
   }
 
   .summary {
     flex: 1;
     min-width: 0;
     font-size: 0.875rem;
-    color: rgba(255, 255, 255, 0.85);
+    color: rgb(var(--fg-rgb) / 0.85);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

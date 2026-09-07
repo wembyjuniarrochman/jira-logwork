@@ -21,6 +21,7 @@
    * Validates: Requirements 7.1, 7.2, 7.5, 7.6, 7.7, 7.8, 7.9, 11.6, 13.7
    */
 
+  import { t } from "../stores/i18n.svelte";
   import {
     searchAll,
     fetchChildren,
@@ -42,7 +43,7 @@
     email: string;
     apiToken: string;
     isCloud: boolean;
-    onSelect: (issue: { key: string; summary: string }) => void;
+    onSelect: (issue: { key: string; summary: string; issueType?: string }) => void;
     /**
      * Optional project scope. When set, the search is restricted to issues
      * inside this project (no fan-out across all projects).
@@ -54,6 +55,17 @@
      * initial list without typing.
      */
     autoSearchOnEmpty?: boolean;
+    /**
+     * Issue yang ditawarkan saat kotak pencarian masih kosong — dipakai
+     * QuickLogCard untuk menampilkan riwayat terakhir. Sebelumnya riwayat
+     * berdiri sebagai daftar terpisah, sehingga memilih issue punya tiga
+     * tempat berbeda; menaruhnya di sini menjadikan pencarian satu-satunya
+     * pintu masuk.
+     */
+    suggestions?: SearchResult[];
+    suggestionsLabel?: string;
+    /** Ditampilkan saat `suggestions` kosong (mis. belum ada riwayat). */
+    suggestionsEmpty?: string;
   }
 
   let {
@@ -64,6 +76,9 @@
     onSelect,
     projectKey,
     autoSearchOnEmpty = false,
+    suggestions = [],
+    suggestionsLabel = "",
+    suggestionsEmpty = "",
   }: Props = $props();
 
   // ---------------------------------------------------------------------
@@ -101,6 +116,32 @@
         /* swallow */
       }
     }
+  }
+
+  // ---------------------------------------------------------------------
+  // Ikon tipe issue
+  // ---------------------------------------------------------------------
+
+  /**
+   * Keluarga ikon untuk sebuah nama issue type.
+   *
+   * Jira mengizinkan tiap project menamai tipe issue-nya sendiri ("Task
+   * Development / Configuration", "IT Ticket", …), jadi pencocokannya lewat
+   * substring, bukan daftar nama persis — tipe yang tak dikenal jatuh ke
+   * "task", sama seperti Jira yang memakai ikon task untuk tipe generik.
+   *
+   * Urutannya penting: "sub-task" juga mengandung "task", jadi ia harus
+   * diperiksa lebih dulu.
+   */
+  type IconKind = "epic" | "story" | "task" | "bug" | "subtask";
+
+  function iconKind(issueType: string): IconKind {
+    const s = issueType.toLowerCase();
+    if (s.includes("epic")) return "epic";
+    if (s.includes("subtask") || s.includes("sub-task")) return "subtask";
+    if (s.includes("story")) return "story";
+    if (s.includes("bug")) return "bug";
+    return "task";
   }
 
   // -- Internal state -------------------------------------------------------
@@ -155,9 +196,11 @@
    * row still gets a chevron when it has descendants.
    */
   function isExpandable(result: SearchResult): boolean {
-    const t = (result.issueType ?? "").toLowerCase();
-    if (t === "sub-task" || t === "subtask") return false;
-    if (t === "epic") return parentsWithChildren.has(result.key);
+    // Dinamai `type`, bukan `t`: `t` sudah dipakai fungsi terjemahan, dan
+    // membayanginya di sini adalah jebakan bagi perubahan berikutnya.
+    const type = (result.issueType ?? "").toLowerCase();
+    if (type === "sub-task" || type === "subtask") return false;
+    if (type === "epic") return parentsWithChildren.has(result.key);
     if (typeof result.subtasksCount === "number") {
       return result.subtasksCount > 0;
     }
@@ -397,7 +440,10 @@
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   const DEBOUNCE_MS = 300;
-  const MIN_QUERY_LENGTH = 2;
+  /** Satu karakter sudah cukup: JQL memakai pencocokan per-awalan-kata,
+   *  jadi "p" mengembalikan hasil yang berarti. Debounce 300ms tetap
+   *  menahan laju request saat mengetik cepat. */
+  const MIN_QUERY_LENGTH = 1;
 
   // Number of skeleton rows shown while a search is in flight (3–4 per
   // implementation notes).
@@ -551,7 +597,7 @@
   }
 
   function handleSelect(result: SearchResult): void {
-    onSelect({ key: result.key, summary: result.summary });
+    onSelect({ key: result.key, summary: result.summary, issueType: result.issueType });
     query = "";
   }
 
@@ -625,7 +671,7 @@
 
 <div class="universal-search">
   <label for="universal-search-input" class="search-label">
-    Search issues
+    {t("search.title")}
   </label>
 
   <div class="input-wrapper">
@@ -646,7 +692,7 @@
       id="universal-search-input"
       type="text"
       class="search-input"
-      placeholder="Search by issue key or summary"
+      placeholder={t("search.placeholder")}
       autocomplete="off"
       spellcheck="false"
       value={query}
@@ -656,6 +702,60 @@
     />
   </div>
 
+  <!--
+    Ikon tipe issue mengikuti set ikon Jira yang sekarang: glyph outline
+    berwarna tanpa kotak latar. Nama tipenya tetap terbaca lewat `title`
+    dan `aria-label` — persis pola Jira sendiri, yang juga hanya
+    menampilkan ikon.
+
+    Semua glyph digambar `fill="none"` dengan `stroke="currentColor"`,
+    sehingga warnanya cukup diatur sekali lewat `color` di CSS per tipe.
+  -->
+  {#snippet typeIcon(issueType: string)}
+    {@const kind = iconKind(issueType)}
+    <span
+      class="type-icon"
+      data-kind={kind}
+      title={issueType}
+      role="img"
+      aria-label={issueType}
+    >
+      {#if kind === "epic"}
+        <!-- Petir -->
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path
+            d="M9.6 2.1 4.5 8.9a.4.4 0 0 0 .32.64h2.53l-.85 4.02a.4.4 0 0 0 .72.31l5.28-6.79a.4.4 0 0 0-.32-.64H9.49l.83-4.02a.4.4 0 0 0-.72-.31Z"
+          />
+        </svg>
+      {:else if kind === "story"}
+        <!-- Pembatas buku -->
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path
+            d="M4.9 2.9h6.2c.5 0 .9.4.9.9v9.03a.4.4 0 0 1-.64.32L8 10.5l-3.36 2.64a.4.4 0 0 1-.64-.32V3.8c0-.5.4-.9.9-.9Z"
+          />
+        </svg>
+      {:else if kind === "bug"}
+        <!-- Kumbang -->
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <rect x="4.9" y="5.4" width="6.2" height="7.7" rx="3.1" />
+          <path d="M6.1 3.8 7.2 5.3M9.9 3.8 8.8 5.3" />
+          <path d="M4.9 7.6H2.9M4.9 10.9H2.9M11.1 7.6h2M11.1 10.9h2" />
+        </svg>
+      {:else if kind === "subtask"}
+        <!-- Dua kotak bertumpuk -->
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <rect x="2.4" y="2.4" width="7.3" height="7.3" rx="1.9" />
+          <rect x="6.3" y="6.3" width="7.3" height="7.3" rx="1.9" />
+        </svg>
+      {:else}
+        <!-- Kotak bercentang -->
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <rect x="2.5" y="2.5" width="11" height="11" rx="2.6" />
+          <path d="m5.6 8.2 1.9 1.9 3.5-4" />
+        </svg>
+      {/if}
+    </span>
+  {/snippet}
   {#if error}
     <p
       id="universal-search-error"
@@ -671,7 +771,7 @@
       id="universal-search-results"
       class="results-region"
       role="region"
-      aria-label="Search results"
+      aria-label={t("search.results")}
       aria-busy={inFlight}
     >
       {#if inFlight}
@@ -696,23 +796,23 @@
               }}
             >
               {#if createMetaLoading}
-                <p class="create-form-loading">Memuat form…</p>
+                <p class="create-form-loading">{t("search.formLoading")}</p>
               {:else if createMetaError}
                 <p class="create-form-error" role="alert">{createMetaError}</p>
                 <div class="create-form-actions">
                   <button type="button" class="create-btn-secondary" onclick={closeCreateForm}>
-                    Tutup
+                    {t("common.close")}
                   </button>
                 </div>
               {:else if createMeta}
                 {@const types = eligibleIssueTypes(parent, createMeta)}
                 <label class="create-field">
-                  <span class="create-label">Summary</span>
+                  <span class="create-label">{t("search.summary")}</span>
                   <input
                     type="text"
                     class="create-input"
                     bind:value={formSummary}
-                    placeholder="Apa yang ingin dikerjakan?"
+                    placeholder={t("search.whatToDo")}
                     required
                     autofocus
                     disabled={createSubmitting}
@@ -720,7 +820,7 @@
                 </label>
                 <div class="create-field-row">
                   <label class="create-field">
-                    <span class="create-label">Task type</span>
+                    <span class="create-label">{t("search.taskType")}</span>
                     <select
                       class="create-input"
                       bind:value={formIssueTypeName}
@@ -732,7 +832,7 @@
                     </select>
                   </label>
                   <label class="create-field">
-                    <span class="create-label">Assignee</span>
+                    <span class="create-label">{t("search.assignee")}</span>
                     <select
                       class="create-input"
                       bind:value={formAssigneeId}
@@ -770,7 +870,7 @@
                     onclick={closeCreateForm}
                     disabled={createSubmitting}
                   >
-                    Batal
+                    {t("common.cancel")}
                   </button>
                   <button
                     type="submit"
@@ -784,6 +884,113 @@
             </form>
           {/if}
         {/snippet}
+        <!--
+          Satu definisi baris untuk semua kedalaman. Sebelumnya markup ini
+          ditulis dua kali — sekali untuk epic di level atas, sekali untuk
+          turunannya di dalam `renderQueue` — sehingga setiap perubahan harus
+          diterapkan dua kali dan diam-diam bisa menyimpang.
+        -->
+        {#snippet resultRow(node: SearchResult, depth: number, isLast: boolean)}
+          {@const rowExpandable = isExpandable(node)}
+          {@const rowExpanded = !!expandedKeys[node.key]}
+          {@const rowLoading = !!loadingKeys[node.key]}
+          <div
+            class="result-row-wrap"
+            class:is-child={depth > 0}
+            class:is-last={isLast}
+            class:is-open={rowExpandable && rowExpanded}
+            style="--depth: {depth};"
+          >
+            {#if rowExpandable}
+              <button
+                type="button"
+                class="chevron-btn"
+                class:expanded={rowExpanded}
+                aria-expanded={rowExpanded}
+                aria-label={rowExpanded ? `Tutup ${node.key}` : `Buka ${node.key}`}
+                onclick={() => toggleExpand(node)}
+              >
+                {#if rowLoading}
+                  <span class="chevron-spinner" aria-hidden="true"></span>
+                {:else}
+                  <svg
+                    class="chevron-icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <polyline points="9 6 15 12 9 18" />
+                  </svg>
+                {/if}
+              </button>
+            {:else}
+              <span class="chevron-spacer" aria-hidden="true"></span>
+            {/if}
+            <div
+              class="result-row"
+              role="button"
+              tabindex="0"
+              onclick={() => handleSelect(node)}
+              onkeydown={(e) => rowKeydown(e, node)}
+            >
+              {#if issueUrl(node.key)}
+                <a
+                  class="result-key result-key-link"
+                  href={issueUrl(node.key)}
+                  onclick={(e) => openIssue(e, node.key)}
+                  title={`Buka ${node.key} di Jira`}
+                >
+                  {node.key}
+                </a>
+              {:else}
+                <span class="result-key">{node.key}</span>
+              {/if}
+              {#if node.issueType}
+                {@render typeIcon(node.issueType)}
+              {/if}
+              <span class="result-summary" title={node.summary}>
+                {node.summary}
+              </span>
+              <span class="row-actions">
+                <button
+                  type="button"
+                  class="start-timer-btn"
+                  title={t("search.startTimer")}
+                  onclick={(e) => startTimer(e, node)}
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                </button>
+                {#if canCreateChildIn(node)}
+                  <button
+                    type="button"
+                    class="add-child-btn"
+                    class:active={createOpenFor === node.key}
+                    aria-label={`Tambah child di ${node.key}`}
+                    title={node.issueType?.toLowerCase() === "epic"
+                      ? "Tambah Task"
+                      : "Tambah Sub-task"}
+                    onclick={(e) => {
+                      // Tombol ini kini berada di dalam baris yang juga
+                      // `role="button"`; tanpa ini satu klik akan membuka form
+                      // sekaligus memilih issue-nya.
+                      e.stopPropagation();
+                      void openCreateForm(node);
+                    }}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                  </button>
+                {/if}
+              </span>
+            </div>
+          </div>
+        {/snippet}
         <ul class="results-list" role="list">
           {#each results as result (result.key)}
             {@const expandable = isExpandable(result)}
@@ -792,92 +999,7 @@
             {@const childErr = childErrorByKey[result.key] ?? null}
             {@const kids = childrenByKey[result.key] ?? null}
             <li>
-              <div class="result-row-wrap" style="--depth: 0;">
-                {#if expandable}
-                  <button
-                    type="button"
-                    class="chevron-btn"
-                    class:expanded
-                    aria-expanded={expanded}
-                    aria-label={expanded ? `Tutup ${result.key}` : `Buka ${result.key}`}
-                    onclick={() => toggleExpand(result)}
-                  >
-                    {#if loading}
-                      <span class="chevron-spinner" aria-hidden="true"></span>
-                    {:else}
-                      <svg
-                        class="chevron-icon"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        aria-hidden="true"
-                      >
-                        <polyline points="9 6 15 12 9 18" />
-                      </svg>
-                    {/if}
-                  </button>
-                {:else}
-                  <span class="chevron-spacer" aria-hidden="true"></span>
-                {/if}
-                <div
-                  class="result-row"
-                  role="button"
-                  tabindex="0"
-                  onclick={() => handleSelect(result)}
-                  onkeydown={(e) => rowKeydown(e, result)}
-                >
-                  {#if issueUrl(result.key)}
-                    <a
-                      class="result-key result-key-link"
-                      href={issueUrl(result.key)}
-                      onclick={(e) => openIssue(e, result.key)}
-                      title={`Buka ${result.key} di Jira`}
-                    >
-                      {result.key}
-                    </a>
-                  {:else}
-                    <span class="result-key">{result.key}</span>
-                  {/if}
-                  {#if result.issueType}
-                    <span
-                      class={`result-type type-${result.issueType.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                    >
-                      {result.issueType}
-                    </span>
-                  {/if}
-                  <span class="result-summary" title={result.summary}>
-                    {result.summary}
-                  </span>
-                  <button
-                    type="button"
-                    class="start-timer-btn"
-                    title="Start Timer"
-                    onclick={(e) => startTimer(e, result)}
-                  >
-                    <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                  </button>
-                </div>
-                {#if canCreateChildIn(result)}
-                  <button
-                    type="button"
-                    class="add-child-btn"
-                    class:active={createOpenFor === result.key}
-                    aria-label={`Tambah child di ${result.key}`}
-                    title={result.issueType?.toLowerCase() === "epic"
-                      ? "Tambah Task"
-                      : "Tambah Sub-task"}
-                    onclick={() => void openCreateForm(result)}
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
-                      <line x1="12" y1="5" x2="12" y2="19" />
-                      <line x1="5" y1="12" x2="19" y2="12" />
-                    </svg>
-                  </button>
-                {/if}
-              </div>
+              {@render resultRow(result, 0, false)}
               {@render createFormBlock(result, 1)}
 
               {#if expandable && expanded}
@@ -887,16 +1009,19 @@
                   </p>
                 {:else if kids && kids.length === 0 && !loading}
                   <p class="child-empty" style="--depth: 1;">
-                    Tidak ada child issue.
+                    {t("search.noChildren")}
                   </p>
                 {:else if kids && kids.length > 0}
-                  {@const renderQueue: Array<{ node: SearchResult; depth: number }> = (() => {
-                    const out: Array<{ node: SearchResult; depth: number }> = [];
+                  {@const renderQueue: Array<{ node: SearchResult; depth: number; isLast: boolean }> = (() => {
+                    const out: Array<{ node: SearchResult; depth: number; isLast: boolean }> = [];
                     const walk = (parent: SearchResult, depth: number) => {
                       const pkids = childrenByKey[parent.key];
                       if (!pkids) return;
-                      for (const c of pkids) {
-                        out.push({ node: c, depth });
+                      for (const [i, c] of pkids.entries()) {
+                        // `isLast` dipakai CSS untuk memotong garis di tengah
+                        // baris, membentuk "└" — tanpa itu garisnya menjulur
+                        // ke bawah seolah masih ada adik yang menyusul.
+                        out.push({ node: c, depth, isLast: i === pkids.length - 1 });
                         if (
                           isExpandable(c) &&
                           expandedKeys[c.key] &&
@@ -913,95 +1038,7 @@
                     {@const cExpandable = isExpandable(item.node)}
                     {@const cExpanded = !!expandedKeys[item.node.key]}
                     {@const cLoading = !!loadingKeys[item.node.key]}
-                    <div
-                      class="result-row-wrap is-child"
-                      style="--depth: {item.depth};"
-                    >
-                      {#if cExpandable}
-                        <button
-                          type="button"
-                          class="chevron-btn"
-                          class:expanded={cExpanded}
-                          aria-expanded={cExpanded}
-                          aria-label={cExpanded ? `Tutup ${item.node.key}` : `Buka ${item.node.key}`}
-                          onclick={() => toggleExpand(item.node)}
-                        >
-                          {#if cLoading}
-                            <span class="chevron-spinner" aria-hidden="true"></span>
-                          {:else}
-                            <svg
-                              class="chevron-icon"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="2.5"
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              aria-hidden="true"
-                            >
-                              <polyline points="9 6 15 12 9 18" />
-                            </svg>
-                          {/if}
-                        </button>
-                      {:else}
-                        <span class="chevron-spacer" aria-hidden="true"></span>
-                      {/if}
-                      <div
-                        class="result-row"
-                        role="button"
-                        tabindex="0"
-                        onclick={() => handleSelect(item.node)}
-                        onkeydown={(e) => rowKeydown(e, item.node)}
-                      >
-                        {#if issueUrl(item.node.key)}
-                          <a
-                            class="result-key result-key-link"
-                            href={issueUrl(item.node.key)}
-                            onclick={(e) => openIssue(e, item.node.key)}
-                            title={`Buka ${item.node.key} di Jira`}
-                          >
-                            {item.node.key}
-                          </a>
-                        {:else}
-                          <span class="result-key">{item.node.key}</span>
-                        {/if}
-                        {#if item.node.issueType}
-                          <span
-                            class={`result-type type-${item.node.issueType.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                          >
-                            {item.node.issueType}
-                          </span>
-                        {/if}
-                        <span class="result-summary" title={item.node.summary}>
-                          {item.node.summary}
-                        </span>
-                        <button
-                          type="button"
-                          class="start-timer-btn"
-                          title="Start Timer"
-                          onclick={(e) => startTimer(e, item.node)}
-                        >
-                          <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                        </button>
-                      </div>
-                      {#if canCreateChildIn(item.node)}
-                        <button
-                          type="button"
-                          class="add-child-btn"
-                          class:active={createOpenFor === item.node.key}
-                          aria-label={`Tambah child di ${item.node.key}`}
-                          title={item.node.issueType?.toLowerCase() === "epic"
-                            ? "Tambah Task"
-                            : "Tambah Sub-task"}
-                          onclick={() => void openCreateForm(item.node)}
-                        >
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
-                            <line x1="12" y1="5" x2="12" y2="19" />
-                            <line x1="5" y1="12" x2="19" y2="12" />
-                          </svg>
-                        </button>
-                      {/if}
-                    </div>
+                    {@render resultRow(item.node, item.depth, item.isLast)}
                     {@render createFormBlock(item.node, item.depth + 1)}
                   {/each}
                 {/if}
@@ -1010,13 +1047,41 @@
           {/each}
         </ul>
       {:else if !error && query.length >= MIN_QUERY_LENGTH}
-        <p class="empty-state">No issues match this query.</p>
+        <p class="empty-state">{t("search.noMatch")}</p>
       {:else if !error && isTreeMode && !inFlight && results.length === 0}
         <p class="empty-state">
-          Project ini belum punya Epic. Ketik untuk mencari issue lain.
+          {t("search.noEpics")}
         </p>
       {/if}
     </div>
+  {:else if suggestions.length > 0}
+    <!-- Kotak masih kosong: tawarkan riwayat sebagai titik awal, sehingga
+         kasus paling umum (mencatat ke issue yang sama seperti kemarin)
+         tidak perlu mengetik apa pun. -->
+    <div class="suggestions" role="region" aria-label={suggestionsLabel || t("search.recent")}>
+      <span class="suggestions-label">{suggestionsLabel || t("search.recent")}</span>
+      <ul class="suggestion-list" role="list">
+        {#each suggestions as s (s.key)}
+          <li>
+            <button
+              type="button"
+              class="suggestion-row"
+              onclick={() => handleSelect(s)}
+            >
+              <span class="suggestion-key">{s.key}</span>
+              {#if s.issueType}
+                {@render typeIcon(s.issueType)}
+              {/if}
+              <span class="suggestion-summary" title={s.summary}>
+                {s.summary}
+              </span>
+            </button>
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {:else if suggestionsEmpty}
+    <p class="empty-state">{suggestionsEmpty}</p>
   {/if}
 </div>
 
@@ -1033,7 +1098,84 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgb(var(--fg-rgb) / 0.6);
+  }
+
+  /* --- Saran saat kotak kosong ------------------------------------------ */
+
+  .suggestions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  .suggestions-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgb(var(--fg-rgb) / 0.45);
+  }
+
+  .suggestion-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    max-height: 16rem;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--glass-border) transparent;
+  }
+
+  .suggestion-row {
+    width: 100%;
+    /* Tanpa reset `box-sizing` global, `width: 100%` + padding meluber
+       melewati tepi wadahnya. */
+    box-sizing: border-box;
+    display: flex;
+    /* `center`, bukan `baseline`: ikon tipe adalah kotak berukuran tetap
+       tanpa garis dasar teks, jadi baseline akan menggesernya. */
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.5rem 0.625rem;
+    border-radius: 0.5rem;
+    border: 1px solid transparent;
+    background: rgb(var(--fg-rgb) / 0.04);
+    color: var(--text-primary);
+    text-align: left;
+    cursor: pointer;
+    outline: none;
+    transition:
+      background 150ms ease-out,
+      border-color 150ms ease-out;
+  }
+
+  .suggestion-row:hover {
+    background: rgba(99, 102, 241, 0.14);
+    border-color: rgba(99, 102, 241, 0.35);
+  }
+
+  .suggestion-row:focus-visible {
+    box-shadow: var(--focus-ring);
+  }
+
+  .suggestion-key {
+    font-weight: 700;
+    font-size: 0.8125rem;
+    color: var(--text-accent);
+    flex-shrink: 0;
+  }
+
+  .suggestion-summary {
+    font-size: 0.8125rem;
+    color: rgb(var(--fg-rgb) / 0.75);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
   }
 
   .input-wrapper {
@@ -1047,17 +1189,20 @@
     left: 0.75rem;
     width: 1rem;
     height: 1rem;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgb(var(--fg-rgb) / 0.45);
     pointer-events: none;
   }
 
   .search-input {
     width: 100%;
+    /* Tanpa reset `box-sizing` global, `width: 100%` + padding meluber
+       melewati tepi wadahnya. */
+    box-sizing: border-box;
     padding: 0.625rem 0.875rem 0.625rem 2.25rem;
     border-radius: 0.625rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.06);
-    color: #f1f5f9;
+    border: 1px solid rgb(var(--fg-rgb) / 0.12);
+    background: rgb(var(--fg-rgb) / 0.06);
+    color: var(--text-primary);
     font: inherit;
     font-size: 0.9375rem;
     /* Hover/focus transitions stay under 250ms (R11.3). */
@@ -1069,19 +1214,19 @@
   }
 
   .search-input::placeholder {
-    color: rgba(255, 255, 255, 0.35);
+    color: rgb(var(--fg-rgb) / 0.35);
   }
 
   .search-input:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.2);
+    background: rgb(var(--fg-rgb) / 0.08);
+    border-color: rgb(var(--fg-rgb) / 0.2);
   }
 
   /* Focus ring distinct from hover (R11.4). */
   .search-input:focus-visible {
     border-color: rgba(99, 102, 241, 0.6);
     box-shadow: var(--focus-ring);
-    background: rgba(255, 255, 255, 0.08);
+    background: rgb(var(--fg-rgb) / 0.08);
   }
 
   .error-message {
@@ -1090,7 +1235,7 @@
     border-radius: 0.5rem;
     background: rgba(239, 68, 68, 0.12);
     border: 1px solid rgba(239, 68, 68, 0.3);
-    color: #fca5a5;
+    color: var(--text-danger);
     font-size: 0.8125rem;
     line-height: 1.4;
   }
@@ -1113,17 +1258,30 @@
     overflow-y: auto;
   }
 
+  /* Satu baris per issue. Sebelumnya baris ini `flex-wrap: wrap` dengan
+     ringkasan ber-`min-width: 8rem`, sehingga ringkasan hampir selalu turun ke
+     baris kedua dan hanya ~4 issue muat di layar. Untuk daftar yang tugasnya
+     dipindai cepat, kepadatan lebih berharga daripada ringkasan utuh — teks
+     penuhnya tetap tersedia lewat `title`. */
   .result-row {
-    width: 100%;
+    /* `flex: 1` + `min-width: 0`, bukan `width: 100%`.
+       Baris ini adalah flex item di samping kolom chevron, dan app ini tidak
+       punya reset `box-sizing: border-box`. Dengan `width: 100%` lebarnya
+       menjadi 100% wadah _plus_ padding 1.5rem, border 2px, chevron 1.5rem,
+       dan gap-nya — meluber ~3.5rem. Karena `.results-list` ber-`overflow-y:
+       auto`, CSS menaikkan `overflow-x` dari `visible` menjadi `auto`, dan
+       muncullah scrollbar horizontal itu. Dengan `flex-basis: 0` lebarnya
+       dihitung dari sisa ruang, jadi padding dan border sudah ikut terhitung. */
+    flex: 1;
+    min-width: 0;
     display: flex;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    gap: 0.375rem 0.625rem;
+    align-items: center;
+    gap: 0.625rem;
     padding: 0.5rem 0.75rem;
     border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgb(var(--fg-rgb) / 0.08);
+    background: rgb(var(--fg-rgb) / 0.04);
+    color: rgb(var(--fg-rgb) / 0.92);
     font: inherit;
     text-align: left;
     cursor: pointer;
@@ -1142,24 +1300,97 @@
    * so the hierarchy is visually obvious. */
 
   .result-row-wrap {
+    --tree-line: rgb(var(--fg-rgb) / 0.14);
     display: flex;
-    align-items: stretch;
+    /* `center`, bukan `stretch`. Chevron punya `height` eksplisit, dan flex
+       item bertinggi pasti tidak ikut stretch — ia jatuh ke atas baris.
+       Selama barisnya setinggi chevron itu tidak kelihatan, tapi baris kini
+       lebih tinggi (padding + tombol aksi 1.5rem), jadi panahnya tampak
+       naik beberapa piksel. */
+    align-items: center;
     gap: 0.375rem;
     position: relative;
     padding-left: calc(var(--depth, 0) * 1.25rem);
   }
 
-  .result-row-wrap.is-child::before {
-    /* Vertical connector line that runs the height of each child row,
-     * anchored at the parent's chevron column. Subtle so it whispers
-     * hierarchy without competing with the row content. */
+  /* Garis hierarki, tiga lapis background pada satu elemen.
+   *
+   * Kolom-kolomnya berjarak 1.25rem, sama dengan langkah indentasi, dan
+   * kolom ke-N berimpit dengan pusat chevron baris berkedalaman N. Itulah
+   * yang membuat garis induk dan garis anak menyambung tanpa perlu tahu
+   * apa pun tentang satu sama lain.
+   *
+   *   1. Garis leluhur  — gradien berulang, selalu setinggi penuh, jadi
+   *      tulang punggung tidak bolong saat ada keturunan yang lebih dalam.
+   *   2. Garis sendiri  — setinggi `--own-spine`: 50% untuk anak terakhir
+   *      sehingga berhenti di tengah dan membentuk "└".
+   *   3. Garis ke bawah — separuh bawah baris, di kolom chevron baris ini,
+   *      hanya saat barisnya terbuka. Tanpa ini ada jeda setinggi separuh
+   *      baris antara panah dan tulang punggung anak-anaknya. */
+  .result-row-wrap::before {
+    content: "";
+    position: absolute;
+    left: 0.6875rem;
+    top: 0;
+    bottom: 0;
+    width: calc(var(--depth, 0) * 1.25rem + 1px);
+    background-image:
+      linear-gradient(var(--tree-line) 0 100%),
+      linear-gradient(var(--tree-line) 0 100%),
+      repeating-linear-gradient(
+        to right,
+        var(--tree-line) 0 1px,
+        transparent 1px 1.25rem
+      );
+    background-size:
+      1px var(--open-spine),
+      1px var(--own-spine),
+      var(--ancestor-width) 100%;
+    background-position:
+      right bottom,
+      right 1.25rem top,
+      left top;
+    background-repeat: no-repeat, no-repeat, repeat-y;
+    pointer-events: none;
+  }
+
+  /* Tinggi 0 = lapisnya tidak tergambar. Ini yang menyalakan tiap lapis,
+     tanpa perlu menulis ulang seluruh aturan `background` per varian. */
+  .result-row-wrap {
+    --own-spine: 0;
+    --open-spine: 0;
+    --ancestor-width: 0px;
+  }
+
+  .result-row-wrap.is-child {
+    --own-spine: 100%;
+    /* `is-child` menjamin `--depth` >= 1, jadi hasilnya tak pernah negatif —
+       dan `background-size` negatif akan membatalkan seluruh deklarasi. */
+    --ancestor-width: calc((var(--depth, 1) - 1) * 1.25rem);
+  }
+
+  .result-row-wrap.is-child.is-last {
+    --own-spine: 50%;
+  }
+
+  .result-row-wrap.is-open {
+    --open-spine: 50%;
+  }
+
+  /* Cabang mendatar dari garis ke baris ini. Inilah yang membuat tiap anak
+     terlihat menempel ke induknya, bukan sekadar berdiri di sebelah batang. */
+  .result-row-wrap.is-child::after {
     content: "";
     position: absolute;
     left: calc((var(--depth, 1) - 1) * 1.25rem + 0.6875rem);
-    top: 0;
-    bottom: 0;
-    width: 1px;
-    background: rgba(255, 255, 255, 0.1);
+    top: 50%;
+    /* Sampai tepi kiri kotak baris, bukan berhenti di kolom chevron:
+       satu langkah indentasi + lebar chevron + gap wrap − offset garis.
+       Ditulis sebagai penjumlahan komponennya, bukan hasilnya (2.4375rem),
+       supaya tetap benar kalau salah satu ukuran itu disetel. */
+    width: calc(1.25rem + 1.5rem + 0.375rem - 0.6875rem);
+    height: 1px;
+    background: var(--tree-line);
     pointer-events: none;
   }
 
@@ -1177,7 +1408,7 @@
     padding: 0;
     border: none;
     background: transparent;
-    color: rgba(255, 255, 255, 0.55);
+    color: rgb(var(--fg-rgb) / 0.55);
     cursor: pointer;
     border-radius: 0.375rem;
     transition: background 150ms ease-out, color 150ms ease-out;
@@ -1185,8 +1416,8 @@
   }
 
   .chevron-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #f8fafc;
+    background: rgb(var(--fg-rgb) / 0.08);
+    color: var(--text-primary);
   }
 
   .chevron-btn:focus-visible {
@@ -1226,20 +1457,20 @@
   }
 
   .child-error {
-    color: #fca5a5;
+    color: var(--text-danger);
     background: rgba(239, 68, 68, 0.08);
     border: 1px solid rgba(239, 68, 68, 0.2);
   }
 
   .child-empty {
-    color: rgba(255, 255, 255, 0.5);
+    color: rgb(var(--fg-rgb) / 0.5);
     background: transparent;
     font-style: italic;
   }
 
   .result-row:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.18);
+    background: rgb(var(--fg-rgb) / 0.08);
+    border-color: rgb(var(--fg-rgb) / 0.18);
   }
 
   .result-row:focus-visible {
@@ -1252,7 +1483,7 @@
       "Liberation Mono", monospace;
     font-size: 0.8125rem;
     font-weight: 600;
-    color: #c7d2fe;
+    color: var(--text-accent-strong);
     flex-shrink: 0;
     letter-spacing: 0.01em;
   }
@@ -1272,67 +1503,103 @@
 
   a.result-key.result-key-link:hover,
   a.result-key.result-key-link:focus-visible {
-    color: #e0e7ff;
+    color: var(--text-accent-strong);
     border-bottom-color: rgba(199, 210, 254, 0.65);
     outline: none;
   }
 
-  /* Issue type badge — defaults to a neutral chip; specific types pick up
-   * their own accent via `.type-<slug>` rules below. The slug comes from
-   * the issue type name (e.g. "Sub-task" → "sub-task", "Story" → "story").
-   *
-   * `max-width` keeps long labels (e.g. "TASK DEVELOPMENT / CONFIGURATION")
-   * from monopolising the row width when the badge wraps to its own line;
-   * `overflow-wrap: anywhere` lets the badge break inside long tokens
-   * rather than pushing past the container edge. */
-  .result-type {
+  /* Ikon tipe issue mengikuti set ikon Jira yang sekarang: glyph outline
+     berwarna, tanpa kotak latar. */
+  .type-icon {
+    flex-shrink: 0;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+
+  /* Atribut stroke ditaruh di sini, bukan diulang di tiap <path>, supaya
+     hanya ada satu tempat kalau ketebalannya perlu disetel. */
+  .type-icon svg {
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* Warna tipe issue Jira. Karena kotak latarnya sudah tidak ada, warna ini
+     yang menjadi warna glyph — dan keduanya sengaja nilai tetap, bukan token
+     `--fg-rgb`, supaya tipe issue tetap dikenali dari warna yang sama persis
+     di tema terang maupun gelap. Ungu dan biru ini punya kontras memadai di
+     kedua latar. */
+  .type-icon[data-kind="epic"] {
+    color: #904ee2;
+  }
+
+  .type-icon[data-kind="story"] {
+    color: #65ba43;
+  }
+
+  .type-icon[data-kind="task"] {
+    color: #2684ff;
+  }
+
+  .type-icon[data-kind="bug"] {
+    color: #e5493a;
+  }
+
+  .type-icon[data-kind="subtask"] {
+    color: #2684ff;
+  }
+
+  /* Aksi per-baris disembunyikan sampai barisnya disentuh. Sebelumnya kedua
+     tombol menyala permanen di setiap baris, jadi daftar 20 issue berarti 40
+     tombol yang bersaing perhatian dengan key dan ringkasan — justru bagian
+     yang sedang dibaca. */
+  .row-actions {
     flex-shrink: 0;
-    max-width: 100%;
-    padding: 0.0625rem 0.4375rem;
-    border-radius: 0.375rem;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    line-height: 1.4;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    color: rgba(241, 245, 249, 0.85);
-    overflow-wrap: anywhere;
-    white-space: normal;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    opacity: 0;
+    transition: opacity 150ms ease-out;
   }
 
-  .result-type.type-epic {
-    background: rgba(139, 92, 246, 0.18);
-    border-color: rgba(139, 92, 246, 0.35);
-    color: #ddd6fe;
+  .result-row:hover .row-actions,
+  /* `focus-within` menjaga tombol tetap terjangkau keyboard: menge-Tab ke
+     dalamnya memunculkannya. */
+  .result-row:focus-within .row-actions,
+  .result-row:focus-visible .row-actions {
+    opacity: 1;
   }
 
-  .result-type.type-story {
-    background: rgba(34, 197, 94, 0.18);
-    border-color: rgba(34, 197, 94, 0.35);
-    color: #bbf7d0;
+  /* Selama form "tambah child" terbuka, tombolnya tetap terlihat walau kursor
+     sudah pindah ke form di bawahnya.
+     Sengaja berdiri sebagai aturan terpisah, bukan digabung ke daftar
+     selektor di atas: satu selektor tak dikenal membatalkan seluruh aturan,
+     dan kalau `:has()` tidak didukung, aturan hover ikut hilang dan tombolnya
+     tak pernah muncul sama sekali. Terpisah begini, kegagalannya hanya
+     kehilangan penanda ini. */
+  .row-actions:has(.add-child-btn.active) {
+    opacity: 1;
   }
 
-  .result-type.type-task {
-    background: rgba(59, 130, 246, 0.18);
-    border-color: rgba(59, 130, 246, 0.35);
-    color: #bfdbfe;
+  /* Perangkat sentuh tidak punya hover sama sekali, jadi di sana aksi harus
+     selalu tampil — kalau tidak, ia menjadi tak terjangkau. */
+  @media (hover: none) {
+    .row-actions {
+      opacity: 1;
+    }
   }
 
-  .result-type.type-sub-task,
-  .result-type.type-subtask {
-    background: rgba(14, 165, 233, 0.18);
-    border-color: rgba(14, 165, 233, 0.35);
-    color: #bae6fd;
-  }
-
-  .result-type.type-bug {
-    background: rgba(239, 68, 68, 0.18);
-    border-color: rgba(239, 68, 68, 0.35);
-    color: #fecaca;
+  @media (prefers-reduced-motion: reduce) {
+    .row-actions {
+      transition: none;
+    }
   }
 
   /* Had no rule at all, so it rendered as a default UA button — grey chrome
@@ -1345,9 +1612,9 @@
     width: 1.5rem;
     height: 1.5rem;
     padding: 0;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.55);
+    border: 1px solid rgb(var(--fg-rgb) / 0.08);
+    background: rgb(var(--fg-rgb) / 0.04);
+    color: rgb(var(--fg-rgb) / 0.55);
     border-radius: 0.5rem;
     cursor: pointer;
     transition:
@@ -1365,7 +1632,7 @@
   .start-timer-btn:hover {
     background: rgba(16, 185, 129, 0.18);
     border-color: rgba(16, 185, 129, 0.4);
-    color: #6ee7b7;
+    color: var(--text-success);
   }
 
   .start-timer-btn:focus-visible {
@@ -1373,17 +1640,20 @@
     border-color: rgba(99, 102, 241, 0.5);
   }
 
+  /* Kini berada di dalam baris, bukan di kolom terpisah di kanannya — dulu
+     kotak tersendiri itu terbaca sebagai elemen lain, bukan aksi milik baris
+     ini. Ukurannya disamakan dengan tombol timer di sebelahnya. */
   .add-child-btn {
     flex-shrink: 0;
-    align-self: stretch;
-    width: 1.875rem;
+    width: 1.5rem;
+    height: 1.5rem;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     padding: 0;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.55);
+    border: 1px solid rgb(var(--fg-rgb) / 0.08);
+    background: rgb(var(--fg-rgb) / 0.04);
+    color: rgb(var(--fg-rgb) / 0.55);
     border-radius: 0.5rem;
     cursor: pointer;
     transition:
@@ -1401,7 +1671,7 @@
   .add-child-btn:hover {
     background: rgba(99, 102, 241, 0.18);
     border-color: rgba(99, 102, 241, 0.35);
-    color: #c7d2fe;
+    color: var(--text-accent-strong);
   }
 
   .add-child-btn:focus-visible {
@@ -1412,7 +1682,7 @@
   .add-child-btn.active {
     background: rgba(99, 102, 241, 0.22);
     border-color: rgba(99, 102, 241, 0.55);
-    color: #e0e7ff;
+    color: var(--text-accent-strong);
   }
 
   /* -- Inline create form ---------------------------------------------- */
@@ -1448,16 +1718,19 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: rgba(255, 255, 255, 0.55);
+    color: rgb(var(--fg-rgb) / 0.55);
   }
 
   .create-input {
     width: 100%;
+    /* Tanpa reset `box-sizing` global, `width: 100%` + padding meluber
+       melewati tepi wadahnya. */
+    box-sizing: border-box;
     padding: 0.4375rem 0.625rem;
     border-radius: 0.4375rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(15, 23, 42, 0.55);
-    color: #f1f5f9;
+    border: 1px solid rgb(var(--fg-rgb) / 0.12);
+    background: rgb(var(--surface-rgb) / 0.55);
+    color: var(--text-primary);
     font: inherit;
     font-size: 0.875rem;
     outline: none;
@@ -1496,7 +1769,7 @@
   .create-btn-primary {
     border: 1px solid rgba(99, 102, 241, 0.6);
     background: rgba(99, 102, 241, 0.85);
-    color: #f8fafc;
+    color: var(--text-primary);
   }
 
   .create-btn-primary:hover:not(:disabled) {
@@ -1509,19 +1782,19 @@
   }
 
   .create-btn-secondary {
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    border: 1px solid rgb(var(--fg-rgb) / 0.14);
     background: transparent;
-    color: rgba(255, 255, 255, 0.75);
+    color: rgb(var(--fg-rgb) / 0.75);
   }
 
   .create-btn-secondary:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgb(var(--fg-rgb) / 0.08);
   }
 
   .create-form-loading {
     margin: 0;
     font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgb(var(--fg-rgb) / 0.6);
   }
 
   .create-form-error {
@@ -1530,22 +1803,21 @@
     border-radius: 0.4375rem;
     background: rgba(239, 68, 68, 0.12);
     border: 1px solid rgba(239, 68, 68, 0.3);
-    color: #fca5a5;
+    color: var(--text-danger);
     font-size: 0.8125rem;
   }
 
   .result-summary {
-    flex: 1 1 12rem;
-    min-width: 8rem;
+    /* `min-width: 0` wajib: tanpa itu flex item menolak menyusut di bawah
+     * lebar konten intrinsiknya dan elipsisnya tidak pernah muncul. */
+    flex: 1;
+    min-width: 0;
     font-size: 0.875rem;
-    color: rgba(255, 255, 255, 0.85);
+    color: rgb(var(--fg-rgb) / 0.85);
     line-height: 1.4;
-    /* Allow long summaries to wrap onto multiple lines instead of being
-     * truncated with ellipsis. `overflow-wrap` makes sure unbroken tokens
-     * (e.g. "ITBP/ITPMO/BPR" or long URLs) still break inside the row
-     * rather than overflowing horizontally. */
-    overflow-wrap: anywhere;
-    white-space: normal;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /* -- Skeleton rows ---------------------------------------------------- */
@@ -1556,8 +1828,8 @@
     gap: 0.625rem;
     padding: 0.5rem 0.75rem;
     border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgb(var(--fg-rgb) / 0.08);
+    background: rgb(var(--fg-rgb) / 0.04);
   }
 
   .skeleton-key,
@@ -1567,9 +1839,9 @@
     border-radius: 0.25rem;
     background: linear-gradient(
       90deg,
-      rgba(255, 255, 255, 0.06) 0%,
-      rgba(255, 255, 255, 0.14) 50%,
-      rgba(255, 255, 255, 0.06) 100%
+      rgb(var(--fg-rgb) / 0.06) 0%,
+      rgb(var(--fg-rgb) / 0.14) 50%,
+      rgb(var(--fg-rgb) / 0.06) 100%
     );
     background-size: 200% 100%;
     animation: shimmer 1.4s ease-in-out infinite;
@@ -1602,7 +1874,7 @@
     .skeleton-key,
     .skeleton-summary {
       animation: none;
-      background: rgba(255, 255, 255, 0.08);
+      background: rgb(var(--fg-rgb) / 0.08);
     }
   }
 
@@ -1612,7 +1884,7 @@
     border-radius: 0.5rem;
     background: var(--glass-bg);
     border: 1px dashed var(--glass-border);
-    color: rgba(255, 255, 255, 0.55);
+    color: rgb(var(--fg-rgb) / 0.55);
     font-size: 0.8125rem;
     line-height: 1.4;
   }

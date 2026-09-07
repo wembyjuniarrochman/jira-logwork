@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../stores/i18n.svelte";
   /**
    * CredentialsBanner
    *
@@ -38,7 +39,7 @@
     </svg>
 
     <span class="message">
-      Connection setup is incomplete. Open Settings to finish.
+      {t("misc.setupIncomplete")}
     </span>
 
     <button
@@ -46,7 +47,7 @@
       class="open-settings-btn"
       onclick={onOpenSettings}
     >
-      Open Settings
+      {t("misc.openSettings")}
     </button>
   </div>
 {/if}
@@ -63,7 +64,7 @@
      * communicate "warning" without losing the glass-morphism look. */
     background-color: rgba(245, 158, 11, 0.12);
     border-color: rgba(245, 158, 11, 0.35);
-    color: #fde68a;
+    color: var(--text-warning);
     font-size: 0.875rem;
     line-height: 1.4;
   }
@@ -78,7 +79,7 @@
   .message {
     flex: 1 1 auto;
     min-width: 0;
-    color: #fde68a;
+    color: var(--text-warning);
   }
 
   .open-settings-btn {
@@ -87,7 +88,7 @@
     border-radius: 0.5rem;
     border: 1px solid rgba(245, 158, 11, 0.45);
     background: rgba(245, 158, 11, 0.18);
-    color: #fef3c7;
+    color: var(--text-warning);
     font-size: 0.8125rem;
     font-weight: 600;
     cursor: pointer;

@@ -12,8 +12,8 @@
    *            11.6, 12.1, 12.3, 13.7, 15.2, 15.3, 15.4
    */
 
+  import { t } from "../stores/i18n.svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import RecentIssuesList from "./RecentIssuesList.svelte";
   import UniversalSearch from "./UniversalSearch.svelte";
   import TimePresetChips from "./TimePresetChips.svelte";
   import DescriptionEditor from "./DescriptionEditor.svelte";
@@ -27,8 +27,22 @@
     type ChipValue,
     type SubmitState,
     type SelectedIssue,
+    PRESET_MINUTES,
+    minutesOf,
+    normalizeMinutes,
+    formatDurationLong,
+    formatDecimalHours,
+    HOURS_PER_DAY,
   } from "../stores/quickLogReducer";
   import { secondsForHours, jiraStarted } from "../stores/settingsStore";
+  import {
+    layoutAroundBreak,
+    breakRangeFor,
+    parseHHmm,
+    formatHHmm,
+    DEFAULT_BREAK_CONFIG,
+    type BreakConfig,
+  } from "../stores/breakStore";
   import { classifyError } from "../stores/authStore";
   import { addPendingWorklog } from "../stores/offlineStore";
   import { fetchProjects, type JiraProject } from "../stores/searchStore";
@@ -37,6 +51,8 @@
   interface WorklogEvent {
     issueKey: string;
     summary: string;
+    /** Diteruskan ke cache recent supaya daftarnya bisa menampilkan ikon tipe. */
+    issueType?: string;
     hours: number;
     date: string;
     description: string;
@@ -69,6 +85,9 @@
     /** Optional "HH:mm" to prefill Date Started when adding a fresh worklog
      *  (e.g. from clicking an empty Day-timeline slot). Ignored when editing. */
     initialStartedTime?: string | null;
+    /** Jam istirahat yang berlaku; menggeser jam selesai, bukan memotong
+     *  durasi kerja. */
+    breakConfig?: BreakConfig;
     onWorklogSubmitted: (e: WorklogEvent) => void;
     onWorklogQueued: (e: WorklogEvent) => void;
     onCancelEdit?: () => void;
@@ -86,6 +105,7 @@
     editWorklog = null,
     localEdit = false,
     initialStartedTime = null,
+    breakConfig = DEFAULT_BREAK_CONFIG,
     onWorklogSubmitted,
     onWorklogQueued,
     onCancelEdit,
@@ -113,14 +133,15 @@
         startedTime = "09:00";
       }
       const h = editWorklog.hours;
-      // If h is one of the chips (0.5, 1, 2, 4, 8), select that chip
-      if ([0.5, 1, 2, 4, 8].includes(h)) {
+      // Dicocokkan lewat menit agar preset pecahan seperti 5 menit tidak
+      // luput karena pembulatan float. Kolom di bawah selalu mencerminkan
+      // nilai yang berlaku, preset maupun bukan.
+      if (PRESET_MINUTES.includes(minutesOf(h))) {
         chipState = { chipHours: h as ChipValue, customHours: null };
-        customHoursText = "";
       } else {
         chipState = { chipHours: null, customHours: h };
-        customHoursText = h.toString();
       }
+      setCustomParts(h);
     } else {
       // Reset to defaults when not editing
       selectedIssue = null;
@@ -128,7 +149,7 @@
       startedDate = selectedDate;
       startedTime = initialStartedTime ?? "09:00";
       chipState = { chipHours: 1, customHours: null };
-      customHoursText = "";
+      setCustomParts(1);
     }
   });
 
@@ -137,10 +158,57 @@
   // Default chipHours = 1 on first render (R8.6).
   let chipState = $state<ChipState>({ chipHours: 1, customHours: null });
 
-  // The text bound to the custom-hours input. We track this separately from
-  // chipState.customHours so the user can clear the field without
-  // round-tripping through "0" or NaN.
-  let customHoursText = $state<string>("");
+  /**
+   * Tiga kolom durasi.
+   *
+   * Tipenya `string | number | null` karena `bind:value` pada
+   * `<input type="number">` mengubah nilainya menjadi **angka** (atau `null`
+   * saat dikosongkan), sementara `setCustomParts` menuliskannya sebagai
+   * string. Menganggapnya string saja membuat `.trim()` melempar TypeError
+   * di dalam handler input — commit-nya batal diam-diam dan mengetik di
+   * kolom ini terasa tidak berpengaruh sama sekali.
+   */
+  type DurationPart = string | number | null;
+  let customDays = $state<DurationPart>("");
+  let customHoursPart = $state<DurationPart>("");
+  let customMinutes = $state<DurationPart>("");
+
+  /** Pure: satu kolom → angka, apa pun bentuk mentahnya. */
+  function partNum(v: DurationPart): number {
+    if (v === null || v === undefined) return 0;
+    if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+    return v.trim() === "" ? 0 : Number(v) || 0;
+  }
+
+  /** Pure: true bila kolom benar-benar kosong (bukan bernilai nol). */
+  function partEmpty(v: DurationPart): boolean {
+    if (v === null || v === undefined) return true;
+    if (typeof v === "number") return !Number.isFinite(v);
+    return v.trim() === "";
+  }
+
+  /**
+   * Tulis satu durasi ke ketiga kolom sekaligus, masing-masing dalam
+   * satuannya sendiri: 15 menit menjadi 0.03 hari, 0.25 jam, dan 15 menit.
+   * Ketiganya menggambarkan durasi yang sama, jadi tidak boleh dijumlahkan.
+   */
+  function setCustomParts(hours: number | null): void {
+    if (hours === null || hours <= 0) {
+      customDays = "";
+      customHoursPart = "";
+      customMinutes = "";
+      return;
+    }
+    const total = minutesOf(hours);
+    customDays = trimNum(total / (HOURS_PER_DAY * 60));
+    customHoursPart = trimNum(total / 60);
+    customMinutes = String(total);
+  }
+
+  /** Pure: angka ringkas tanpa nol di belakang — 1, 1.5, 0.03. */
+  function trimNum(v: number): string {
+    return String(Number(v.toFixed(2)));
+  }
 
   let description = $state<string>("");
 
@@ -280,6 +348,46 @@
     chipState.customHours ?? chipState.chipHours ?? 0,
   );
 
+  /**
+   * Jam selesai setelah jam istirahat diperhitungkan, dalam menit.
+   *
+   * Durasi yang diisi adalah jam kerja, jadi jeda istirahat mendorong jam
+   * selesainya mundur: mulai 09:00 dengan 8 jam kerja berakhir 18:00, bukan
+   * 17:00. `null` bila tidak melewati istirahat sama sekali.
+   */
+  const breakShiftedEnd = $derived.by<number | null>(() => {
+    const startMin = parseHHmm(startedTime);
+    if (startMin === null) return null;
+    const dateStr = startedDate || selectedDate;
+    const parts = dateStr.split("-").map(Number);
+    if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
+    const dow = new Date(parts[0], parts[1] - 1, parts[2]).getDay();
+    const segs = layoutAroundBreak(
+      startMin,
+      minutesOf(effectiveHours),
+      breakRangeFor(breakConfig, dow),
+    );
+    if (segs.length < 2) return null;
+    return segs[segs.length - 1].end;
+  });
+
+  /** Label satuan mengikuti bahasa aktif. */
+  const durationUnits = $derived({
+    day: t("unit.day"),
+    hour: t("unit.hour"),
+    minute: t("unit.minute"),
+  });
+
+  /** Durasi berlaku dalam kata — "1 jam 30 menit". */
+  const durationSummary = $derived(
+    formatDurationLong(minutesOf(effectiveHours), durationUnits),
+  );
+
+  /** Padanan desimalnya — bentuk yang dipakai Jira, mis. "0.25h". */
+  const durationDecimal = $derived(
+    formatDecimalHours(minutesOf(effectiveHours)),
+  );
+
   const canSubmitNow = $derived(
     canSubmit({
       recentIssuesReady,
@@ -295,43 +403,115 @@
 
   // --- Selection sources ---
 
-  function handleRecentSelect(issue: RecentIssue) {
-    selectedIssue = { key: issue.issueKey, summary: issue.summary };
-    submitState = "idle";
-    submitError = null;
-  }
+  /**
+   * Riwayat issue dalam bentuk yang dimengerti UniversalSearch, dipakai
+   * sebagai saran saat kotak pencarian masih kosong.
+   */
+  const recentSuggestions = $derived(
+    recentIssues.map((r) => ({ key: r.issueKey, summary: r.summary, issueType: r.issueType })),
+  );
 
-  function handleSearchSelect(result: { key: string; summary: string }) {
-    selectedIssue = { key: result.key, summary: result.summary };
+  function handleSearchSelect(result: { key: string; summary: string; issueType?: string }) {
+    selectedIssue = { key: result.key, summary: result.summary, issueType: result.issueType };
     submitState = "idle";
     submitError = null;
   }
 
   // --- Chip / custom-hours handlers ---
 
-  function handleChipChange(value: ChipValue) {
-    chipState = chipReducer(chipState, { type: "chipClick", value });
-    customHoursText = "";
-  }
-
-  function handleCustomHoursInput(event: Event) {
-    const target = event.target as HTMLInputElement;
-    const raw = target.value;
-    customHoursText = raw;
-
-    if (raw.trim() === "") {
+  /**
+   * Terapkan sebuah durasi ke chipState.
+   *
+   * Kalau nilainya kebetulan sama dengan salah satu preset, yang dicatat
+   * adalah chip-nya — bukan "custom" — sehingga chip tersebut ikut menyala.
+   * Tanpa ini, mengetik 30 menit di kolom bawah tidak akan pernah menyorot
+   * chip "30m" meski nilainya identik.
+   */
+  function applyDuration(hours: number | null): void {
+    if (hours === null) {
       chipState = chipReducer(chipState, { type: "customHours", value: null });
       return;
     }
+    if (PRESET_MINUTES.includes(minutesOf(hours))) {
+      chipState = chipReducer(chipState, { type: "chipClick", value: hours });
+    } else {
+      chipState = chipReducer(chipState, { type: "customHours", value: hours });
+    }
+  }
 
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed) || !isValidCustomHours(parsed)) {
-      // Leave chipState as-is; only commit when the value is valid so partial
-      // typing does not deselect the current chip.
+  function handleChipChange(value: ChipValue) {
+    chipState = chipReducer(chipState, { type: "chipClick", value });
+    // Chip dan tiga kolom adalah dua tampilan dari nilai yang sama, jadi
+    // menekan chip harus langsung terbaca di kolom Hari/Jam/Menit.
+    setCustomParts(value);
+  }
+
+  // --- Tiga kolom durasi -------------------------------------------------
+
+  /** Satuan yang diwakili tiap kolom, dalam menit. */
+  const UNIT_MINUTES = {
+    days: HOURS_PER_DAY * 60,
+    hours: 60,
+    minutes: 1,
+  } as const;
+
+  type DurationUnit = keyof typeof UNIT_MINUTES;
+
+  /**
+   * Ketiga kolom adalah **tampilan setara** dari satu durasi, bukan bagian
+   * yang dijumlahkan: 15 menit tampil sebagai 0.03 hari, 0.25 jam, dan 15
+   * menit sekaligus.
+   *
+   * Karena itu mengubah satu kolom menetapkan seluruh durasi dari kolom itu
+   * saja — menjumlahkan ketiganya akan menghitung durasi yang sama tiga
+   * kali.
+   */
+  function totalFrom(unit: DurationUnit): number {
+    const raw =
+      unit === "days"
+        ? customDays
+        : unit === "hours"
+          ? customHoursPart
+          : customMinutes;
+    return partNum(raw) * UNIT_MINUTES[unit];
+  }
+
+  function allPartsEmpty(): boolean {
+    return (
+      partEmpty(customDays) &&
+      partEmpty(customHoursPart) &&
+      partEmpty(customMinutes)
+    );
+  }
+
+  function commitCustomDuration(unit: DurationUnit): void {
+    if (allPartsEmpty()) {
+      applyDuration(null);
       return;
     }
+    const total = totalFrom(unit) / 60;
+    if (!isValidCustomHours(total)) return;
+    applyDuration(total);
+  }
 
-    chipState = chipReducer(chipState, { type: "customHours", value: parsed });
+  /**
+   * Bulatkan ke kelipatan 5 menit, lalu tulis ulang ketiga kolom dari nilai
+   * itu sehingga ketiganya selalu menggambarkan durasi yang sama.
+   *
+   * Dijalankan pada `change` — saat meninggalkan field atau menekan panah
+   * stepper — bukan pada setiap ketikan. Kalau ditulis ulang per karakter,
+   * mengetik "15" mustahil: digit "1" langsung dinormalkan dan kolomnya
+   * berubah sebelum digit kedua sempat masuk.
+   */
+  function normalizeCustomDuration(unit: DurationUnit): void {
+    const normalized = allPartsEmpty() ? 0 : normalizeMinutes(totalFrom(unit));
+    if (normalized === 0) {
+      setCustomParts(null);
+      applyDuration(null);
+      return;
+    }
+    setCustomParts(normalized / 60);
+    applyDuration(normalized / 60);
   }
 
   // --- Submission ---
@@ -382,6 +562,27 @@
     return `${dateStr}T${time}:00.000${offset === "Z" ? "+0000" : offset}`;
   }
 
+  /** Label pintasan yang ditampilkan di tombol, disesuaikan per platform. */
+  const shortcutLabel =
+    typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform)
+      ? "⌘↵"
+      : "Ctrl+↵";
+
+  /**
+   * Cmd+Enter (macOS) / Ctrl+Enter (Windows) mengirim form dari mana pun di
+   * dalam kartu, termasuk saat kursor ada di textarea deskripsi — Enter
+   * biasa di sana tetap membuat baris baru.
+   *
+   * Escape sudah ditangani overlay di Workspace, jadi pasangan pintasannya
+   * kini lengkap: Escape menutup, Cmd+Enter mengirim.
+   */
+  function handleCardKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
+    if (!canSubmitNow) return;
+    event.preventDefault();
+    void handleSubmit();
+  }
+
   async function handleSubmit() {
     if (!canSubmitNow || selectedIssue === null) {
       return;
@@ -393,6 +594,10 @@
 
     const issueKey = selectedIssue.key;
     const summary = selectedIssue.summary;
+    const issueType = selectedIssue.issueType;
+    // Durasi yang diisi user adalah jam KERJA dan dikirim apa adanya.
+    // Jam istirahat tidak memotongnya — ia hanya menggeser jam selesai,
+    // yang murni urusan tampilan kalender.
     const hours = effectiveHours;
     // The worklog lands on the user-chosen Date Started, not just the calendar
     // day, so the optimistic UI update and Jira agree.
@@ -404,7 +609,7 @@
     // Edit draf lokal: tidak ada panggilan Jira — kembalikan nilainya ke
     // parent, yang memperbarui draf di staging-nya sendiri.
     if (editWorklog && localEdit) {
-      onWorklogSubmitted({ issueKey, summary, hours, date, description: comment, started });
+      onWorklogSubmitted({ issueKey, summary, issueType, hours, date, description: comment, started });
       submitState = "success";
       successResetTimer = setTimeout(() => {
         if (submitState === "success") submitState = "idle";
@@ -465,13 +670,12 @@
 
       // Success: UI handles reset/closing via onWorklogSubmitted.
       // We pass all fields so Workspace can update the UI optimistically.
-      onWorklogSubmitted({ issueKey, summary, hours, date, description: comment, started });
+      onWorklogSubmitted({ issueKey, summary, issueType, hours, date, description: comment, started });
 
       description = "";
       startedDate = selectedDate;
       startedTime = "09:00";
       chipState = { chipHours: 1, customHours: null };
-      customHoursText = "";
       submitState = "success";
 
       successResetTimer = setTimeout(() => {
@@ -490,7 +694,7 @@
             comment,
           });
           submitState = "queued";
-          onWorklogQueued({ issueKey, summary, hours, date, description: comment, started });
+          onWorklogQueued({ issueKey, summary, issueType, hours, date, description: comment, started });
 
           // Hold the queued state long enough for the user to read it; same
           // duration as success so the visual rhythm matches.
@@ -546,17 +750,27 @@
   }
 </script>
 
-<section class="quick-log-card glass glass-overlay" aria-labelledby="{uid}-heading">
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<section
+  class="quick-log-card glass glass-overlay"
+  aria-labelledby="{uid}-heading"
+  onkeydown={handleCardKeydown}
+>
   <header class="card-header">
-    <h2 id="{uid}-heading" class="card-title">Log Work</h2>
+    <h2 id="{uid}-heading" class="card-title">{t("log.title")}</h2>
     <span class="date-badge" aria-label="Selected date {selectedDateLabel}">
       {selectedDateLabel}
     </span>
   </header>
 
+  <!-- Dua kolom: kiri menjawab "issue mana", kanan "berapa lama & kapan".
+       Di bawah 46rem grid-nya runtuh jadi satu kolom seperti sebelumnya. -->
+  <div class="card-columns">
+  <div class="card-col">
+
   <!-- Project picker -->
   <div class="section">
-    <label for="{uid}-project" class="field-label">Project</label>
+    <label for="{uid}-project" class="field-label">{t("log.project")}</label>
     <div class="project-picker">
       <div class="project-input-wrap">
         <input
@@ -584,7 +798,7 @@
           <button
             type="button"
             class="project-clear"
-            aria-label="Hapus pilihan project (kembali ke semua project)"
+            aria-label={t("log.projectClear")}
             onclick={() => chooseProject(null)}
           >
             ×
@@ -597,15 +811,15 @@
           id="{uid}-project-listbox"
           class="project-listbox glass"
           role="listbox"
-          aria-label="Daftar project"
+          aria-label={t("log.projectList")}
           bind:this={projectListboxEl}
         >
           {#if projectsLoading && !projectsLoaded}
-            <li class="project-status" aria-live="polite">Memuat project…</li>
+            <li class="project-status" aria-live="polite">{t("log.projectLoading")}</li>
           {:else if projectsError}
             <li class="project-status error" role="alert">{projectsError}</li>
           {:else if filteredProjects.length === 0}
-            <li class="project-status">Tidak ada project yang cocok.</li>
+            <li class="project-status">{t("log.projectNoMatch")}</li>
           {:else}
             {#each filteredProjects as p, i (p.key)}
               <li
@@ -631,20 +845,13 @@
     {/if}
   </div>
 
-  <!-- Recent issues (with optional inline error) -->
+  <!-- Pemilihan issue: satu pintu masuk. Riwayat tampil sebagai saran di
+       dalam pencarian saat kotaknya masih kosong, jadi tidak ada lagi dua
+       daftar terpisah yang menjawab pertanyaan yang sama. -->
   <div class="section">
     {#if recentIssuesError}
       <p class="recent-error" role="alert">{recentIssuesError}</p>
     {/if}
-    <RecentIssuesList
-      issues={recentIssues}
-      selectedKey={selectedIssue?.key ?? null}
-      onSelect={handleRecentSelect}
-    />
-  </div>
-
-  <!-- Universal search -->
-  <div class="section">
     <UniversalSearch
       {baseUrl}
       {email}
@@ -652,6 +859,8 @@
       {isCloud}
       projectKey={selectedProject?.key}
       autoSearchOnEmpty={!!selectedProject}
+      suggestions={recentSuggestions}
+            suggestionsEmpty={recentIssuesReady ? t("search.noRecent") : ""}
       onSelect={handleSearchSelect}
     />
   </div>
@@ -659,7 +868,7 @@
   <!-- Selected issue summary -->
   {#if selectedIssue}
     <div class="selected-issue" aria-live="polite">
-      <span class="selected-label">Selected:</span>
+      <span class="selected-label">{t("log.selected")}</span>
       <span class="selected-key">{selectedIssue.key}</span>
       <span class="selected-summary" title={selectedIssue.summary}>
         {selectedIssue.summary}
@@ -667,8 +876,8 @@
       <button
         type="button"
         class="selected-cancel"
-        aria-label="Batalkan pilihan issue"
-        title="Batalkan pilihan"
+        aria-label={t("log.clearIssue")}
+        title={t("log.clearIssue")}
         onclick={() => {
           selectedIssue = null;
           submitState = "idle";
@@ -680,34 +889,100 @@
     </div>
   {/if}
 
-  <!-- Hours: chips + custom hours -->
-  <div class="section hours-section">
-    <TimePresetChips value={chipState.chipHours} onChange={handleChipChange} />
+  </div><!-- /card-col kiri -->
+  <div class="card-col">
 
-    <div class="custom-hours">
-      <label for={customHoursId} class="custom-hours-label">
-        Custom hours
-      </label>
-      <input
-        id={customHoursId}
-        type="number"
-        min="0.25"
-        max="24"
-        step="0.25"
-        inputmode="decimal"
-        placeholder="e.g. 1.5"
-        class="custom-hours-input"
-        value={customHoursText}
-        oninput={handleCustomHoursInput}
-        aria-describedby="{uid}-hours-hint"
-      />
-      <span id="{uid}-hours-hint" class="hint">0.25–24 in 0.25 steps</span>
+  <!-- Hours: preset + custom adalah satu keputusan, jadi satu grup berlabel
+       tunggal alih-alih dua field bertingkat dengan label sendiri-sendiri. -->
+  <div class="section hours-section">
+    <div class="hours-head">
+      <span class="field-label">{t("log.hours")}</span>
+      {#if durationSummary}
+        <!-- Total yang berlaku, dieja lengkap. Tiga kolom angka mudah
+             disalahbaca (nilai 0 mirip field kosong), jadi hasil akhirnya
+             dinyatakan sekali dengan kata-kata. -->
+        <span class="hours-total" aria-live="polite">
+          {durationSummary}
+          <span class="hours-decimal">{durationDecimal}</span>
+        </span>
+      {/if}
     </div>
+
+    {#if breakShiftedEnd !== null}
+      <!-- Istirahat tidak memotong jam kerja; ia menggeser jam selesai.
+           Menampilkan jam selesainya membuat efek itu kasat mata sebelum
+           user menekan Submit. -->
+      <p class="break-notice" aria-live="polite">
+        {t("log.breakNotice", {
+          d: formatDurationLong(minutesOf(effectiveHours), durationUnits),
+          end: formatHHmm(breakShiftedEnd),
+        })}
+      </p>
+    {/if}
+    <div class="hours-row">
+      <TimePresetChips value={chipState.chipHours} onChange={handleChipChange} />
+    </div>
+
+    <!-- Tiga kolom terpisah menggantikan satu input jam desimal: menuliskan
+         "1 jam 30 menit" tidak lagi menuntut user mengubahnya jadi 1.5. -->
+    <div class="duration-row">
+      <div class="duration-field">
+        <label for="{customHoursId}-d" class="duration-label">{t("log.days")}</label>
+        <input
+          id="{customHoursId}-d"
+          type="number"
+          min="0"
+          max="3"
+          step="any"
+          inputmode="decimal"
+          class="duration-input"
+          bind:value={customDays}
+          oninput={() => commitCustomDuration("days")}
+          onchange={() => normalizeCustomDuration("days")}
+          aria-describedby="{uid}-hours-hint"
+        />
+      </div>
+      <div class="duration-field">
+        <label for="{customHoursId}-h" class="duration-label">{t("log.hoursPart")}</label>
+        <input
+          id="{customHoursId}-h"
+          type="number"
+          min="0"
+          max="24"
+          step="any"
+          inputmode="decimal"
+          class="duration-input"
+          bind:value={customHoursPart}
+          oninput={() => commitCustomDuration("hours")}
+          onchange={() => normalizeCustomDuration("hours")}
+          aria-describedby="{uid}-hours-hint"
+        />
+      </div>
+      <div class="duration-field">
+        <label for="{customHoursId}-m" class="duration-label">{t("log.minutes")}</label>
+        <input
+          id="{customHoursId}-m"
+          type="number"
+          min="0"
+          max="1440"
+          step="5"
+          inputmode="numeric"
+          class="duration-input"
+          bind:value={customMinutes}
+          oninput={() => commitCustomDuration("minutes")}
+          onchange={() => normalizeCustomDuration("minutes")}
+          aria-describedby="{uid}-hours-hint"
+        />
+      </div>
+    </div>
+    <span id="{uid}-hours-hint" class="hint">
+      {t("log.durationHint", { h: HOURS_PER_DAY })}
+    </span>
   </div>
 
   <!-- Date started -->
   <div class="section">
-    <label for={startedDateId} class="field-label">Date started</label>
+    <label for={startedDateId} class="field-label">{t("log.dateStarted")}</label>
     <div class="datetime-row">
       <input
         id={startedDateId}
@@ -718,7 +993,7 @@
       <input
         type="time"
         class="datetime-input datetime-time"
-        aria-label="Waktu mulai"
+        aria-label={t("log.startTime")}
         bind:value={startedTime}
       />
     </div>
@@ -727,19 +1002,22 @@
   <!-- Description -->
   <div class="section">
     <label for={descriptionId} class="field-label">
-      Description (optional)
+      {t("log.description")}
     </label>
     <DescriptionEditor
       id={descriptionId}
       bind:value={description}
       maxlength={500}
-      placeholder="What did you work on?"
+      placeholder={t("settings.workPlaceholder")}
       ariaInvalid={!descriptionValid}
     />
     <div class="char-count" aria-live="polite">
       {description.length} / 500
     </div>
   </div>
+
+  </div><!-- /card-col kanan -->
+  </div><!-- /card-columns -->
 
   <!-- Status messages -->
   {#if submitState === "success"}
@@ -756,7 +1034,7 @@
       >
         <path d="M20 6L9 17l-5-5" />
       </svg>
-      <span>Worklog submitted</span>
+      <span>{t("log.submitted")}</span>
     </div>
   {:else if submitState === "queued"}
     <div class="status status-queued" role="status" aria-live="polite">
@@ -773,7 +1051,7 @@
         <circle cx="12" cy="12" r="10" />
         <polyline points="12 6 12 12 16 14" />
       </svg>
-      <span>Queued for sync</span>
+      <span>{t("log.queued")}</span>
     </div>
   {:else if submitState === "error" && submitError}
     <div
@@ -808,7 +1086,7 @@
         class="cancel-btn"
         onclick={onCancelEdit}
       >
-        Cancel
+        {t("common.cancel")}
       </button>
     {/if}
     <button
@@ -824,6 +1102,7 @@
         <span>{editWorklog ? "Updating…" : "Submitting…"}</span>
       {:else}
         <span>{editWorklog ? (localEdit ? "Simpan Draf" : "Update Worklog") : "Submit"}</span>
+        <kbd class="submit-kbd" aria-hidden="true">{shortcutLabel}</kbd>
       {/if}
     </button>
   </div>
@@ -847,7 +1126,7 @@
   .card-title {
     font-size: 1.125rem;
     font-weight: 600;
-    color: #f1f5f9;
+    color: var(--text-primary);
     margin: 0;
     letter-spacing: -0.01em;
   }
@@ -855,7 +1134,7 @@
   .date-badge {
     font-size: 0.75rem;
     font-weight: 500;
-    color: #c7d2fe;
+    color: var(--text-accent-strong);
     background: rgba(99, 102, 241, 0.15);
     border: 1px solid rgba(99, 102, 241, 0.3);
     padding: 0.25rem 0.625rem;
@@ -885,9 +1164,9 @@
     width: 100%;
     padding: 0.625rem 2.25rem 0.625rem 0.875rem;
     border-radius: 0.625rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.06);
-    color: #f1f5f9;
+    border: 1px solid rgb(var(--fg-rgb) / 0.12);
+    background: rgb(var(--fg-rgb) / 0.06);
+    color: var(--text-primary);
     font: inherit;
     font-size: 0.9375rem;
     transition:
@@ -898,18 +1177,18 @@
   }
 
   .project-input::placeholder {
-    color: rgba(255, 255, 255, 0.45);
+    color: rgb(var(--fg-rgb) / 0.45);
   }
 
   .project-input:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.2);
+    background: rgb(var(--fg-rgb) / 0.08);
+    border-color: rgb(var(--fg-rgb) / 0.2);
   }
 
   .project-input:focus-visible {
     border-color: rgba(99, 102, 241, 0.6);
     box-shadow: var(--focus-ring);
-    background: rgba(255, 255, 255, 0.08);
+    background: rgb(var(--fg-rgb) / 0.08);
   }
 
   .project-clear {
@@ -921,8 +1200,8 @@
     height: 1.5rem;
     padding: 0;
     border: none;
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.85);
+    background: rgb(var(--fg-rgb) / 0.08);
+    color: rgb(var(--fg-rgb) / 0.85);
     border-radius: 999px;
     font-size: 1rem;
     line-height: 1;
@@ -935,8 +1214,8 @@
   }
 
   .project-clear:hover {
-    background: rgba(255, 255, 255, 0.16);
-    color: #ffffff;
+    background: rgb(var(--fg-rgb) / 0.16);
+    color: var(--text-strong);
   }
 
   .project-clear:focus-visible {
@@ -959,26 +1238,26 @@
     background:
       linear-gradient(
         180deg,
-        rgba(15, 23, 42, 0.96) 0%,
-        rgba(15, 23, 42, 0.94) 100%
+        rgb(var(--surface-rgb) / 0.96) 0%,
+        rgb(var(--surface-rgb) / 0.94) 100%
       );
     backdrop-filter: blur(28px) saturate(1.2);
     -webkit-backdrop-filter: blur(28px) saturate(1.2);
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    border: 1px solid rgb(var(--fg-rgb) / 0.14);
     box-shadow:
-      0 20px 40px -12px rgba(0, 0, 0, 0.65),
-      0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+      0 20px 40px -12px rgb(var(--shadow-rgb) / calc(0.65 * var(--shadow-strength))),
+      0 0 0 1px rgb(var(--fg-rgb) / 0.04) inset;
   }
 
   .project-status {
     padding: 0.625rem 0.75rem;
     font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgb(var(--fg-rgb) / 0.6);
     text-align: center;
   }
 
   .project-status.error {
-    color: #fca5a5;
+    color: var(--text-danger);
   }
 
   .project-option {
@@ -1005,7 +1284,7 @@
       "Liberation Mono", monospace;
     font-size: 0.8125rem;
     font-weight: 600;
-    color: #c7d2fe;
+    color: var(--text-accent-strong);
     flex-shrink: 0;
     letter-spacing: 0.01em;
   }
@@ -1014,7 +1293,7 @@
     flex: 1;
     min-width: 0;
     font-size: 0.875rem;
-    color: rgba(255, 255, 255, 0.85);
+    color: rgb(var(--fg-rgb) / 0.85);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1026,7 +1305,7 @@
     border-radius: 0.5rem;
     background: rgba(239, 68, 68, 0.12);
     border: 1px solid rgba(239, 68, 68, 0.3);
-    color: #fca5a5;
+    color: var(--text-danger);
     font-size: 0.8125rem;
     line-height: 1.4;
   }
@@ -1037,7 +1316,7 @@
     border-radius: 0.5rem;
     background: rgba(239, 68, 68, 0.12);
     border: 1px solid rgba(239, 68, 68, 0.3);
-    color: #fca5a5;
+    color: var(--text-danger);
     font-size: 0.8125rem;
   }
 
@@ -1050,7 +1329,7 @@
     background: rgba(99, 102, 241, 0.10);
     border: 1px solid rgba(99, 102, 241, 0.25);
     font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.92);
+    color: rgb(var(--fg-rgb) / 0.92);
     min-width: 0;
   }
 
@@ -1068,7 +1347,7 @@
       ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
       "Liberation Mono", monospace;
     font-weight: 600;
-    color: #c7d2fe;
+    color: var(--text-accent-strong);
     flex-shrink: 0;
   }
 
@@ -1078,7 +1357,7 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: rgba(255, 255, 255, 0.85);
+    color: rgb(var(--fg-rgb) / 0.85);
   }
 
   /* Cancel button — discard the current issue selection so the user can
@@ -1092,8 +1371,8 @@
     padding: 0;
     border: none;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.85);
+    background: rgb(var(--fg-rgb) / 0.08);
+    color: rgb(var(--fg-rgb) / 0.85);
     font-size: 0.9375rem;
     line-height: 1;
     cursor: pointer;
@@ -1106,38 +1385,112 @@
 
   .selected-cancel:hover {
     background: rgba(239, 68, 68, 0.22);
-    color: #fecaca;
+    color: var(--text-danger);
   }
 
   .selected-cancel:focus-visible {
     box-shadow: var(--focus-ring);
   }
 
-  .hours-section {
-    gap: 0.75rem;
+  /* --- Tata letak dua kolom -------------------------------------------- */
+
+  .card-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem 1.5rem;
+    align-items: start;
   }
 
-  .custom-hours {
+  .card-col {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: 1rem;
+    min-width: 0;
   }
 
-  .custom-hours-label,
+  /* Popover ikut menyempit di jendela kecil; di bawah ambang ini dua kolom
+     jadi terlalu sesak, jadi kembali ke satu kolom seperti semula. */
+  @media (max-width: 46rem) {
+    .card-columns {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .hours-section {
+    gap: 0.5rem;
+  }
+
+  .hours-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .hours-total {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-accent);
+  }
+
+  /* Padanan desimal, diredam agar bentuk utamanya tetap yang terbaca. */
+  .hours-decimal {
+    margin-left: 0.375rem;
+    font-weight: 500;
+    color: rgb(var(--fg-rgb) / 0.5);
+  }
+
+  .break-notice {
+    margin: 0;
+    padding: 0.4375rem 0.625rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(251, 191, 36, 0.28);
+    background: rgba(251, 191, 36, 0.1);
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--text-warning);
+  }
+
+  .hours-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
   .field-label {
     font-size: 0.75rem;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.75);
+    color: rgb(var(--fg-rgb) / 0.75);
     letter-spacing: 0.02em;
   }
 
-  .custom-hours-input {
+  .duration-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+  }
+
+  .duration-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+
+  .duration-label {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: rgb(var(--fg-rgb) / 0.55);
+  }
+
+  .duration-input {
     width: 100%;
-    padding: 0.625rem 0.75rem;
+    padding: 0.5rem 0.625rem;
     border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.06);
-    color: #f1f5f9;
+    border: 1px solid rgb(var(--fg-rgb) / 0.12);
+    background: rgb(var(--fg-rgb) / 0.06);
+    color: var(--text-primary);
     font-size: 0.875rem;
     font-family: inherit;
     transition:
@@ -1147,14 +1500,14 @@
     outline: none;
   }
 
-  .custom-hours-input::placeholder {
-    color: rgba(255, 255, 255, 0.35);
+  .duration-input::placeholder {
+    color: rgb(var(--fg-rgb) / 0.35);
   }
 
-  .custom-hours-input:focus-visible {
+  .duration-input:focus-visible {
     border-color: rgba(99, 102, 241, 0.6);
     box-shadow: var(--focus-ring);
-    background: rgba(255, 255, 255, 0.08);
+    background: rgb(var(--fg-rgb) / 0.08);
   }
 
   /* --- Date started (date + time) --- */
@@ -1166,9 +1519,9 @@
   .datetime-input {
     padding: 0.625rem 0.75rem;
     border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.06);
-    color: #f1f5f9;
+    border: 1px solid rgb(var(--fg-rgb) / 0.12);
+    background: rgb(var(--fg-rgb) / 0.06);
+    color: var(--text-primary);
     font-size: 0.875rem;
     font-family: inherit;
     /* Render the native date/time picker chrome in dark mode. */
@@ -1191,25 +1544,25 @@
   }
 
   .datetime-input:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.2);
+    background: rgb(var(--fg-rgb) / 0.08);
+    border-color: rgb(var(--fg-rgb) / 0.2);
   }
 
   .datetime-input:focus-visible {
     border-color: rgba(99, 102, 241, 0.6);
     box-shadow: var(--focus-ring);
-    background: rgba(255, 255, 255, 0.08);
+    background: rgb(var(--fg-rgb) / 0.08);
   }
 
   .hint {
     font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgb(var(--fg-rgb) / 0.45);
   }
 
   .char-count {
     align-self: flex-end;
     font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgb(var(--fg-rgb) / 0.45);
     margin-top: -0.25rem;
   }
 
@@ -1233,20 +1586,20 @@
   .status-success {
     background: rgba(34, 197, 94, 0.12);
     border: 1px solid rgba(34, 197, 94, 0.35);
-    color: #86efac;
+    color: var(--text-success);
     animation: status-flash 1.8s ease-out;
   }
 
   .status-queued {
     background: rgba(245, 158, 11, 0.12);
     border: 1px solid rgba(245, 158, 11, 0.35);
-    color: #fcd34d;
+    color: var(--text-warning);
   }
 
   .status-error {
     background: rgba(239, 68, 68, 0.12);
     border: 1px solid rgba(239, 68, 68, 0.35);
-    color: #fca5a5;
+    color: var(--text-danger);
   }
 
   @keyframes status-flash {
@@ -1273,7 +1626,7 @@
     border-radius: 0.625rem;
     border: 1px solid var(--glass-border);
     background: var(--glass-bg-strong);
-    color: rgba(255, 255, 255, 0.85);
+    color: rgb(var(--fg-rgb) / 0.85);
     font-size: 0.9375rem;
     font-weight: 600;
     cursor: pointer;
@@ -1281,11 +1634,24 @@
   }
 
   .cancel-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.2);
+    background: rgb(var(--fg-rgb) / 0.08);
+    border-color: rgb(var(--fg-rgb) / 0.2);
   }
 
   /* Submit button — primary indigo gradient matching Login */
+  /* Pintasan hanya berguna kalau ketahuan; ditampilkan redup agar tidak
+     bersaing dengan label tombolnya. */
+  .submit-kbd {
+    margin-left: 0.5rem;
+    padding: 0.0625rem 0.3125rem;
+    border-radius: 0.25rem;
+    background: rgb(var(--fg-rgb) / 0.18);
+    font-family: inherit;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    opacity: 0.75;
+  }
+
   .submit-btn {
     flex: 1;
     display: flex;
@@ -1338,7 +1704,7 @@
   .spinner {
     width: 1rem;
     height: 1rem;
-    border: 2px solid rgba(255, 255, 255, 0.3);
+    border: 2px solid rgb(var(--fg-rgb) / 0.3);
     border-top-color: white;
     border-radius: 50%;
     animation: spin 0.6s linear infinite;
@@ -1352,7 +1718,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .submit-btn,
-    .custom-hours-input,
+    .duration-input,
     .datetime-input {
       transition: none;
     }

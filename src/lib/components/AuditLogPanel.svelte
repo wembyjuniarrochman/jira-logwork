@@ -7,6 +7,7 @@
    * salin-sebagai-CSV, dan clear. Ditutup lewat backdrop / tombol / Escape.
    */
 
+  import { t } from "../stores/i18n.svelte";
   import {
     type AuditEntry,
     type AuditStatus,
@@ -105,17 +106,17 @@
       class="audit-panel glass glass-overlay"
       role="dialog"
       aria-modal="true"
-      aria-label="Audit log"
+      aria-label={t("header.auditLog")}
       tabindex="-1"
       onclick={(e) => e.stopPropagation()}
       onkeydown={(e) => e.stopPropagation()}
     >
       <header class="audit-header">
-        <h2 class="audit-title">Audit Log</h2>
+        <h2 class="audit-title">{t("audit.title")}</h2>
         <button
           type="button"
           class="audit-close"
-          aria-label="Tutup audit log"
+          aria-label={t("audit.close")}
           onclick={onClose}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -126,7 +127,7 @@
       </header>
 
       <div class="audit-toolbar">
-        <div class="audit-filters" role="group" aria-label="Filter audit log">
+        <div class="audit-filters" role="group" aria-label={t("audit.filter")}>
           {#each FILTERS as f (f.id)}
             <button
               type="button"
@@ -154,7 +155,7 @@
             disabled={entries.length === 0}
             onclick={onClear}
           >
-            Clear
+            {t("common.clear")}
           </button>
         </div>
       </div>
@@ -237,7 +238,7 @@
     margin: 0;
     font-size: 1.125rem;
     font-weight: 700;
-    color: #f1f5f9;
+    color: var(--text-primary);
     letter-spacing: -0.01em;
   }
 
@@ -250,15 +251,15 @@
     border-radius: 0.5rem;
     border: 1px solid transparent;
     background: transparent;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgb(var(--fg-rgb) / 0.7);
     cursor: pointer;
     transition: background-color 150ms ease-out, color 150ms ease-out;
     outline: none;
   }
 
   .audit-close:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #f1f5f9;
+    background: rgb(var(--fg-rgb) / 0.08);
+    color: var(--text-primary);
   }
 
   .audit-close:focus-visible {
@@ -284,8 +285,8 @@
     gap: 0.25rem;
     padding: 0.1875rem;
     border-radius: 0.625rem;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgb(var(--fg-rgb) / 0.05);
+    border: 1px solid rgb(var(--fg-rgb) / 0.1);
   }
 
   .audit-filter {
@@ -293,7 +294,7 @@
     border: none;
     border-radius: 0.5rem;
     background: transparent;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgb(var(--fg-rgb) / 0.7);
     font-size: 0.75rem;
     font-weight: 600;
     cursor: pointer;
@@ -302,12 +303,12 @@
   }
 
   .audit-filter:hover {
-    color: #f1f5f9;
+    color: var(--text-primary);
   }
 
   .audit-filter.active {
     background: rgba(99, 102, 241, 0.28);
-    color: #e0e7ff;
+    color: var(--text-accent-strong);
   }
 
   .audit-filter:focus-visible {
@@ -322,9 +323,9 @@
   .audit-btn {
     padding: 0.375rem 0.75rem;
     border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgb(var(--fg-rgb) / 0.14);
+    background: rgb(var(--fg-rgb) / 0.06);
+    color: rgb(var(--fg-rgb) / 0.85);
     font-size: 0.75rem;
     font-weight: 600;
     cursor: pointer;
@@ -333,13 +334,13 @@
   }
 
   .audit-btn:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.12);
+    background: rgb(var(--fg-rgb) / 0.12);
   }
 
   .audit-btn.danger {
     border-color: rgba(239, 68, 68, 0.3);
     background: rgba(239, 68, 68, 0.12);
-    color: #fca5a5;
+    color: var(--text-danger);
   }
 
   .audit-btn.danger:hover:not(:disabled) {
@@ -367,7 +368,7 @@
     margin: 1.5rem 0;
     text-align: center;
     font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgb(var(--fg-rgb) / 0.5);
   }
 
   .audit-row {
@@ -376,8 +377,8 @@
     gap: 0.625rem;
     padding: 0.5rem 0.625rem;
     border-radius: 0.5rem;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgb(var(--fg-rgb) / 0.04);
+    border: 1px solid rgb(var(--fg-rgb) / 0.06);
   }
 
   .audit-row.failed {
@@ -416,25 +417,25 @@
     align-items: center;
     gap: 0.375rem;
     font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.9);
+    color: rgb(var(--fg-rgb) / 0.9);
   }
 
   .audit-action {
     font-weight: 600;
-    color: #f1f5f9;
+    color: var(--text-primary);
   }
 
   .audit-issue {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 0.75rem;
     font-weight: 600;
-    color: #c7d2fe;
+    color: var(--text-accent-strong);
   }
 
   .audit-hours,
   .audit-date {
     font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgb(var(--fg-rgb) / 0.6);
   }
 
   .audit-source {
@@ -448,26 +449,26 @@
 
   .source-auto {
     background: rgba(99, 102, 241, 0.22);
-    color: #c7d2fe;
+    color: var(--text-accent-strong);
   }
 
   .source-manual {
-    background: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.7);
+    background: rgb(var(--fg-rgb) / 0.1);
+    color: rgb(var(--fg-rgb) / 0.7);
   }
 
   .audit-message {
     margin-top: 0.1875rem;
     font-size: 0.75rem;
     line-height: 1.4;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgb(var(--fg-rgb) / 0.6);
     word-break: break-word;
   }
 
   .audit-when {
     flex-shrink: 0;
     font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgb(var(--fg-rgb) / 0.45);
     white-space: nowrap;
   }
 

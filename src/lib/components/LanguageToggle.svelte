@@ -10,19 +10,19 @@
    * no country-flag glyphs, so it falls back to rendering the raw letters —
    * the toggle read "GB EN | ID ID" on the Windows build.
    */
-  import { lang, setLang } from "../stores/i18n.svelte";
+  import { lang, setLang, t } from "../stores/i18n.svelte";
 
   const current = $derived(lang());
 </script>
 
-<div class="lang-toggle" role="group" aria-label="Language / Bahasa">
+<div class="lang-toggle" role="group" aria-label={t("lang.group")}>
   <span class="lang-thumb" class:id={current === "id"} aria-hidden="true"></span>
   <button
     type="button"
     class="lang-opt"
     class:active={current === "en"}
     aria-pressed={current === "en"}
-    title="English"
+    title={t("lang.english")}
     onclick={() => setLang("en")}
   >
     <svg class="flag" viewBox="0 0 60 30" aria-hidden="true">
@@ -42,7 +42,7 @@
     class="lang-opt"
     class:active={current === "id"}
     aria-pressed={current === "id"}
-    title="Bahasa Indonesia"
+    title={t("lang.indonesian")}
     onclick={() => setLang("id")}
   >
     <svg class="flag" viewBox="0 0 60 30" aria-hidden="true">
@@ -63,8 +63,8 @@
     align-items: stretch;
     padding: 0.1875rem;
     border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgb(var(--fg-rgb) / 0.12);
+    background: rgb(var(--fg-rgb) / 0.05);
   }
 
   /* Sliding highlight behind the active option. */
@@ -97,7 +97,7 @@
     padding: 0.25rem 0.5rem;
     border: none;
     background: transparent;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgb(var(--fg-rgb) / 0.6);
     font-size: 0.75rem;
     font-weight: 700;
     letter-spacing: 0.02em;
@@ -108,7 +108,7 @@
   }
 
   .lang-opt.active {
-    color: #ffffff;
+    color: var(--text-on-accent);
   }
 
   .lang-opt:focus-visible {
@@ -121,7 +121,7 @@
     flex-shrink: 0;
     display: block;
     border-radius: 2px;
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18);
+    box-shadow: 0 0 0 1px rgb(var(--fg-rgb) / 0.18);
     transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 

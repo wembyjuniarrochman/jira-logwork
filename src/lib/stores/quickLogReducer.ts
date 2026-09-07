@@ -12,11 +12,139 @@ import { isCredentialComplete, type Credentials } from "./authStore";
 
 export type SubmitState = "idle" | "submitting" | "success" | "error" | "queued";
 
-export type ChipValue = 0.5 | 1 | 2 | 4 | 8;
+/**
+ * Nilai chip, dalam jam.
+ *
+ * Sengaja `number`, bukan union literal: 5 menit adalah 1/12 jam yang tidak
+ * punya representasi desimal terbatas, sehingga literal seperti
+ * `0.0833333333333333` tidak akan pernah cocok persis dengan `5 / 60`.
+ * Daftar preset yang sahih ada di `PRESET_MINUTES`.
+ */
+export type ChipValue = number;
+
+/**
+ * Preset durasi dalam **menit** — sumber tunggal untuk chip maupun
+ * pencocokan. Disimpan sebagai bilangan bulat menit supaya perbandingan
+ * tidak pernah bergantung pada kesetaraan float.
+ */
+export const PRESET_MINUTES: readonly number[] = [5, 15, 30, 60, 120, 240, 480];
+
+/** Pure: jam → menit bulat. Titik konversi tunggal antara dua satuan. */
+export function minutesOf(hours: number): number {
+  return Math.round(hours * 60);
+}
+
+/** Pure: label ringkas — "5m", "30m", "1h", "2h". */
+export function formatDuration(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  const h = minutes / 60;
+  return `${Number.isInteger(h) ? h : h.toFixed(1)}h`;
+}
+
+/**
+ * Panjang satu hari kerja, dalam jam.
+ *
+ * Mengikuti konvensi Jira (`1d = 8h`), bukan 24 jam — di konteks pencatatan
+ * kerja, "1 hari" berarti satu hari kerja. Nilainya tetap agar konversi
+ * selalu bisa ditebak; hint di UI menyebutkannya secara eksplisit supaya
+ * tidak ada yang menerka-nerka.
+ */
+export const HOURS_PER_DAY = 8;
+
+export interface DurationParts {
+  days: number;
+  hours: number;
+  minutes: number;
+}
+
+/**
+ * Pure: pecah jam desimal menjadi hari/jam/menit. Bekerja lewat menit bulat
+ * supaya 1/12 jam (5 menit) tidak hanyut oleh pembulatan float.
+ */
+export function splitDuration(hours: number): DurationParts {
+  if (!Number.isFinite(hours) || hours <= 0) {
+    return { days: 0, hours: 0, minutes: 0 };
+  }
+  const total = Math.round(hours * 60);
+  const dayMinutes = HOURS_PER_DAY * 60;
+  const days = Math.floor(total / dayMinutes);
+  const rest = total - days * dayMinutes;
+  return { days, hours: Math.floor(rest / 60), minutes: rest % 60 };
+}
+
+/** Batas atas satu worklog, dalam menit. */
+export const MAX_MINUTES = 24 * 60;
+
+/**
+ * Pure: bulatkan ke kelipatan 5 menit lalu jepit ke [5, 24 jam].
+ *
+ * Dipakai saat menormalkan tiga kolom durasi, sehingga nilai yang terlihat
+ * selalu sama dengan nilai yang akan dikirim — mengetik 39 menit tidak lagi
+ * menghasilkan field terisi tetapi tak pernah ter-commit karena gagal
+ * validasi kelipatan 5.
+ */
+export function normalizeMinutes(minutes: number): number {
+  if (!Number.isFinite(minutes) || minutes <= 0) return 0;
+  const snapped = Math.round(minutes / MIN_STEP_MINUTES) * MIN_STEP_MINUTES;
+  return Math.min(Math.max(snapped, MIN_STEP_MINUTES), MAX_MINUTES);
+}
+
+/** Label satuan untuk `formatDurationLong`, disuplai pemanggil. */
+export interface DurationUnits {
+  day: string;
+  hour: string;
+  minute: string;
+}
+
+/**
+ * Pure: durasi dalam kata, mis. "1 day 2 hours", "30 minutes". Bagian yang
+ * bernilai nol dilewati, dan nol total menghasilkan string kosong.
+ *
+ * Label satuannya diterima sebagai argumen, bukan ditulis di sini: fungsi
+ * ini dipakai di dalam kalimat yang diterjemahkan, dan satuan berbahasa
+ * Indonesia yang tertanam akan bocor ke tampilan bahasa Inggris.
+ */
+export function formatDurationLong(
+  minutes: number,
+  units: DurationUnits = { day: "hari", hour: "jam", minute: "menit" },
+): string {
+  if (!Number.isFinite(minutes) || minutes <= 0) return "";
+  const p = splitDuration(minutes / 60);
+  const parts: string[] = [];
+  if (p.days) parts.push(`${p.days} ${units.day}`);
+  if (p.hours) parts.push(`${p.hours} ${units.hour}`);
+  if (p.minutes) parts.push(`${p.minutes} ${units.minute}`);
+  return parts.join(" ");
+}
+
+/**
+ * Pure: jam desimal yang ringkas — "0.25h", "1.5h", "8h".
+ *
+ * Bentuk inilah yang dipakai Jira dan kebanyakan timesheet, sementara tiga
+ * kolom Hari/Jam/Menit bersifat saling melengkapi. Menampilkan keduanya
+ * berdampingan menjawab "berapa desimalnya" tanpa membuat kolom Jam
+ * menyalin nilai kolom Menit — yang justru akan terbaca dobel.
+ */
+export function formatDecimalHours(minutes: number): string {
+  if (!Number.isFinite(minutes) || minutes <= 0) return "";
+  const hours = minutes / 60;
+  // Buang nol di belakang: 8.00 -> 8, 1.50 -> 1.5, 0.25 tetap 0.25.
+  return `${Number(hours.toFixed(2))}h`;
+}
+
+/** Pure: gabungkan hari/jam/menit menjadi jam desimal. */
+export function joinDuration(days: number, hours: number, minutes: number): number {
+  const d = Number.isFinite(days) ? days : 0;
+  const h = Number.isFinite(hours) ? hours : 0;
+  const m = Number.isFinite(minutes) ? minutes : 0;
+  return (d * HOURS_PER_DAY * 60 + h * 60 + m) / 60;
+}
 
 export interface SelectedIssue {
   key: string;
   summary: string;
+  /** Nama issue type dari Jira, diteruskan ke cache recent untuk ikonnya. */
+  issueType?: string;
 }
 
 export interface CanSubmitArgs {
@@ -86,19 +214,36 @@ export function chipReducer(state: ChipState, action: ChipAction): ChipState {
 
 // --- Validators (Property 16) ---
 
+/** Satuan terkecil yang bisa dicatat, dalam menit. */
+export const MIN_STEP_MINUTES = 5;
+
 /**
- * Pure: a valid custom-hours value is in [0.25, 24] and a multiple of 0.25.
- * The "multiple of 0.25" check uses `Number.isInteger(h * 4)` to avoid
- * floating-point modulus drift.
+ * Pure: durasi yang sah adalah kelipatan 5 menit, dari 5 menit sampai 24 jam.
+ *
+ * Sebelumnya batasnya kelipatan 0.25 jam (15 menit), sehingga tugas pendek
+ * seperti stand-up 5 menit tidak bisa dicatat sama sekali. Batas itu buatan
+ * aplikasi ini, bukan Jira — Jira menyimpan `timeSpentSeconds`, jadi 300
+ * detik sepenuhnya sah.
+ *
+ * Validasi dilakukan dalam menit, bukan jam: 5 menit adalah 1/12 jam yang
+ * tidak pernah bulat di floating point, sehingga pengecekan gaya
+ * `Number.isInteger(h * 12)` akan menolak nilainya sendiri.
  */
 export function isValidCustomHours(h: number): boolean {
   if (typeof h !== "number" || !Number.isFinite(h)) {
     return false;
   }
-  if (h < 0.25 || h > 24) {
+  const minutes = h * 60;
+  const rounded = Math.round(minutes);
+  // Tolak nilai yang bukan menit bulat (mis. 0.001 jam).
+  if (Math.abs(minutes - rounded) > 1e-6) {
     return false;
   }
-  return Number.isInteger(h * 4);
+  return (
+    rounded >= MIN_STEP_MINUTES &&
+    rounded <= 24 * 60 &&
+    rounded % MIN_STEP_MINUTES === 0
+  );
 }
 
 /**

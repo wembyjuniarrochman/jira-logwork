@@ -64,10 +64,374 @@ const DICT: Record<string, Entry> = {
     id: "Tidak ada worklog di tanggal ini.",
   },
   "common.loading": { en: "Loading", id: "Memuat" },
+  "common.close": { en: "Close", id: "Tutup" },
+  "common.cancel": { en: "Cancel", id: "Batal" },
+  "common.save": { en: "Save", id: "Simpan" },
+  "common.later": { en: "Later", id: "Nanti" },
+  "common.retry": { en: "Try again", id: "Coba lagi" },
+  "common.delete": { en: "Delete", id: "Hapus" },
+  "common.edit": { en: "Edit", id: "Edit" },
+  "common.clear": { en: "Clear", id: "Bersihkan" },
+
+  // Login
+  "login.welcomeBack": { en: "Welcome back,", id: "Selamat datang kembali," },
+  "login.jiraUrl": { en: "Jira URL", id: "URL Jira" },
+  "login.email": { en: "Email", id: "Email" },
+  "login.apiToken": { en: "API Token", id: "Token API" },
+  "login.rememberToken": { en: "Remember token", id: "Ingat token" },
+  "login.authenticating": { en: "Authenticating…", id: "Memverifikasi…" },
+  "login.submit": { en: "Login", id: "Masuk" },
+  "login.formLabel": { en: "Login credentials", id: "Kredensial masuk" },
+  "login.tokenPlaceholder": {
+    en: "Enter your API token",
+    id: "Masukkan token API kamu",
+  },
+
+  // Header
+  "header.auditLog": { en: "Audit log", id: "Catatan audit" },
+  "header.openAuditLog": { en: "Open audit log", id: "Buka catatan audit" },
+
+  // Audit log
+  "audit.title": { en: "Audit Log", id: "Catatan Audit" },
+  "audit.close": { en: "Close audit log", id: "Tutup catatan audit" },
+  "audit.filter": { en: "Filter audit log", id: "Saring catatan audit" },
+
+  // Update
+  "update.available": { en: "Version {v} available", id: "Versi {v} tersedia" },
+  "update.installing": { en: "Installing version {v}…", id: "Memasang versi {v}…" },
+  "update.failed": { en: "Update failed", id: "Gagal memasang update" },
+  "update.willRestart": {
+    en: "The app restarts once the update is installed.",
+    id: "Aplikasi akan dimuat ulang setelah update dipasang.",
+  },
+  "update.action": { en: "Update", id: "Update" },
+  "update.downloading": { en: "Downloading {n}…", id: "Mengunduh {n}…" },
+
+  // Settings — shell
+  "settings.title": { en: "Settings", id: "Pengaturan" },
+  "settings.panelLabel": { en: "Workspace settings", id: "Pengaturan workspace" },
+  "settings.close": { en: "Close settings", id: "Tutup pengaturan" },
+
+  // Settings — Jira connection
+  "settings.connection": { en: "Jira Connection", id: "Koneksi Jira" },
+  "settings.deployment": { en: "Deployment", id: "Jenis Deployment" },
+  "settings.deploymentLabel": { en: "Jira deployment", id: "Jenis deployment Jira" },
+  "settings.cloud": { en: "Cloud", id: "Cloud" },
+  "settings.server": { en: "Server", id: "Server" },
+  "settings.emailPlaceholder": { en: "user@company.com", id: "nama@perusahaan.com" },
+
+  // Settings — reminder & target
+  "settings.reminder": { en: "Reminder", id: "Pengingat" },
+  "settings.reminderEnable": {
+    en: "Enable daily reminder",
+    id: "Aktifkan pengingat harian",
+  },
+  "settings.reminderHour": { en: "Reminder hour (24h)", id: "Jam pengingat (24 jam)" },
+  "settings.targetHours": { en: "Target Hours", id: "Target Jam" },
+  "settings.dailyTarget": { en: "Daily target (hours)", id: "Target harian (jam)" },
+
+  // Settings — auto schedule
+  "settings.autoSchedule": { en: "Auto Scheduling", id: "Penjadwalan Otomatis" },
+  "settings.autoEnable": {
+    en: "Enable auto scheduling",
+    id: "Aktifkan penjadwalan otomatis",
+  },
+  "settings.activeDays": { en: "Active days", id: "Hari berlaku" },
+  "settings.skipHolidays": {
+    en: "Skip national holidays",
+    id: "Lewati hari libur nasional",
+  },
+  "settings.catchUp": {
+    en: "Also fill missed workdays",
+    id: "Isi juga hari kerja yang terlewat",
+  },
+  "settings.catchUpMax": { en: "Maximum days back", id: "Maksimal hari ke belakang" },
+  "settings.runAtLogin": {
+    en: "Run at login & stay active in background",
+    id: "Jalankan saat login & tetap aktif di background",
+  },
+  "settings.activities": { en: "Daily activities", id: "Kegiatan harian" },
+  "settings.noActivities": {
+    en: "No activities yet. Add at least one.",
+    id: "Belum ada kegiatan. Tambahkan minimal satu.",
+  },
+  "settings.addActivity": { en: "+ Add activity", id: "+ Tambah kegiatan" },
+  "settings.removeActivity": { en: "Remove activity", id: "Hapus kegiatan" },
+  "settings.issueKey": { en: "Issue key", id: "Issue key" },
+  "settings.hours": { en: "Hours", id: "Jam" },
+  "settings.startTime": { en: "Start", id: "Mulai" },
+  "settings.validFrom": { en: "Valid from", id: "Berlaku dari" },
+  "settings.validUntil": { en: "Until", id: "Sampai" },
+  "settings.descriptionOptional": {
+    en: "Description (optional)",
+    id: "Deskripsi (opsional)",
+  },
+  "settings.issueKeyPlaceholder": { en: "e.g. PROJ-123", id: "mis. PROJ-123" },
+  "settings.workPlaceholder": {
+    en: "What did you work on?",
+    id: "Apa yang dikerjakan?",
+  },
+
+  // Settings — break
+  "settings.break": { en: "Break Time", id: "Jam Istirahat" },
+  "settings.breakEnable": {
+    en: "Account for break time",
+    id: "Perhitungkan jam istirahat",
+  },
+  "settings.breakStart": { en: "Start", id: "Mulai" },
+  "settings.breakEnd": { en: "End", id: "Selesai" },
+  "settings.breakFriday": { en: "End (Friday)", id: "Selesai (Jumat)" },
+
+  // Settings — appearance & about
+  "settings.appearance": { en: "Appearance", id: "Tampilan" },
+  "settings.themeLabel": { en: "App theme", id: "Tema aplikasi" },
+  "settings.themeAuto": { en: "Automatic", id: "Otomatis" },
+  "settings.themeLight": { en: "Light", id: "Terang" },
+  "settings.themeDark": { en: "Dark", id: "Gelap" },
+  "settings.systemUsing": { en: "System is currently using", id: "Sistem sedang memakai tema" },
+  "settings.about": { en: "About", id: "Tentang" },
+  "settings.app": { en: "Application", id: "Aplikasi" },
+  "settings.version": { en: "Version", id: "Versi" },
+  "settings.author": { en: "Author", id: "Pembuat" },
+  "settings.sourceCode": { en: "Source code", id: "Kode sumber" },
+  "settings.checkUpdate": { en: "Check for updates", id: "Cek pembaruan" },
+  "settings.checking": { en: "Checking…", id: "Mengecek…" },
+  "settings.upToDate": { en: "You're on the latest version.", id: "Sudah versi terbaru." },
+  "settings.updateFound": {
+    en: "Version {v} available — see the banner in the bottom right.",
+    id: "Versi {v} tersedia — lihat banner di kanan bawah.",
+  },
+  "settings.autoChecked": {
+    en: "Updates are also checked automatically on every launch.",
+    id: "Pembaruan juga dicek otomatis setiap kali aplikasi dibuka.",
+  },
+
+  // Log Work form
+  "log.title": { en: "Log Work", id: "Catat Kerja" },
+  "log.project": { en: "Project", id: "Project" },
+  "log.projectList": { en: "Project list", id: "Daftar project" },
+  "log.projectLoading": { en: "Loading projects…", id: "Memuat project…" },
+  "log.projectNoMatch": {
+    en: "No matching project.",
+    id: "Tidak ada project yang cocok.",
+  },
+  "log.projectClear": {
+    en: "Clear project filter (back to all projects)",
+    id: "Hapus pilihan project (kembali ke semua project)",
+  },
+  "log.selected": { en: "Selected:", id: "Terpilih:" },
+  "log.clearIssue": { en: "Clear selected issue", id: "Batalkan pilihan issue" },
+  "log.hours": { en: "Hours", id: "Jam" },
+  "log.days": { en: "Days", id: "Hari" },
+  "log.hoursPart": { en: "Hours", id: "Jam" },
+  "log.minutes": { en: "Minutes", id: "Menit" },
+  "log.dateStarted": { en: "Date started", id: "Waktu mulai" },
+  "log.startTime": { en: "Start time", id: "Waktu mulai" },
+  "log.description": { en: "Description (optional)", id: "Deskripsi (opsional)" },
+  "log.submitted": { en: "Worklog submitted", id: "Worklog terkirim" },
+  "log.queued": { en: "Queued for sync", id: "Diantre untuk sinkronisasi" },
+  "log.breakNotice": {
+    en: "Crosses break time — {d} of work ends at {end}.",
+    id: "Melewati jam istirahat — {d} kerja selesai pukul {end}.",
+  },
+  "log.durationHint": {
+    en: "Three views of the same duration — editing one updates the others. 5-minute steps, max 24 hours. 1 day = {h} work hours.",
+    id: "Tiga tampilan dari durasi yang sama — mengubah satu memperbarui lainnya. Kelipatan 5 menit, maksimal 24 jam. 1 hari = {h} jam kerja.",
+  },
+
+  // Search
+  "search.title": { en: "Search issues", id: "Cari issue" },
+  "search.placeholder": {
+    en: "Search by issue key or summary",
+    id: "Cari berdasarkan issue key atau ringkasan",
+  },
+  "search.results": { en: "Search results", id: "Hasil pencarian" },
+  "search.noMatch": {
+    en: "No issues match this query.",
+    id: "Tidak ada issue yang cocok.",
+  },
+  "search.noEpics": {
+    en: "This project has no Epics yet. Type to search other issues.",
+    id: "Project ini belum punya Epic. Ketik untuk mencari issue lain.",
+  },
+  "search.noChildren": { en: "No child issues.", id: "Tidak ada child issue." },
+  "search.recent": { en: "Recently used", id: "Terakhir dipakai" },
+  "search.noRecent": {
+    en: "No history yet. Type to search issues.",
+    id: "Belum ada riwayat. Ketik untuk mencari issue.",
+  },
+  "search.formLoading": { en: "Loading form…", id: "Memuat form…" },
+  "search.summary": { en: "Summary", id: "Ringkasan" },
+  "search.taskType": { en: "Task type", id: "Tipe task" },
+  "search.assignee": { en: "Assignee", id: "Ditugaskan ke" },
+  "search.whatToDo": { en: "What needs doing?", id: "Apa yang ingin dikerjakan?" },
+  "search.startTimer": { en: "Start timer", id: "Mulai timer" },
+
+  // Calendar extras
+  "calendar.title": { en: "Calendar", id: "Kalender" },
+  "calendar.viewMode": { en: "Calendar view mode", id: "Mode tampilan kalender" },
+  "calendar.groupBy": { en: "Group list", id: "Kelompokkan daftar" },
+  "calendar.groupByDate": { en: "By date", id: "Per tanggal" },
+  "calendar.groupByIssue": { en: "By issue", id: "Per issue" },
+  "calendar.taskName": { en: "Task Name", id: "Nama Task" },
+  "calendar.workReference": { en: "Work Reference", id: "Referensi Kerja" },
+  "calendar.comment": { en: "Comment", id: "Komentar" },
+  "calendar.entries": { en: "entries", id: "entri" },
+  "calendar.draft": { en: "draft", id: "draf" },
+  "calendar.editWorklog": { en: "Edit worklog", id: "Edit logwork" },
+  "calendar.deleteWorklog": { en: "Delete worklog", id: "Hapus logwork" },
+  "calendar.confirmDelete": {
+    en: "Confirm worklog deletion",
+    id: "Konfirmasi hapus logwork",
+  },
+  "calendar.clickToDelete": { en: "Click to delete", id: "Klik untuk menghapus" },
+  "calendar.cancelDelete": { en: "Cancel deletion", id: "Batal hapus" },
+  "calendar.confirmYes": { en: "Yes, delete", id: "Ya, hapus" },
+  "calendar.addWorklog": { en: "Add worklog", id: "Tambah logwork" },
+
+  // Staged changes bar
+  "staged.discard": { en: "Discard", id: "Buang" },
+  "staged.saving": { en: "Saving…", id: "Menyimpan…" },
+  "staged.regionLabel": {
+    en: "Unsaved calendar changes",
+    id: "Perubahan kalender belum disimpan",
+  },
+  "staged.submit": { en: "Submit changes ({n})", id: "Simpan perubahan ({n})" },
+  "staged.pendingEdits": {
+    en: "{n} unsaved changes",
+    id: "{n} perubahan belum disimpan",
+  },
+  "staged.pendingDrafts": {
+    en: "{n} scheduled drafts — review then submit",
+    id: "{n} draf jadwal otomatis — periksa lalu submit",
+  },
+  "staged.pendingBoth": {
+    en: "{e} changes · {d} scheduled drafts",
+    id: "{e} perubahan · {d} draf jadwal otomatis",
+  },
+  "staged.failed": {
+    en: "Failed to save {n} changes. Please try again.",
+    id: "Gagal menyimpan {n} perubahan. Silakan coba lagi.",
+  },
+
+  // Misc surfaces
+  "misc.logWork": { en: "Log work", id: "Catat kerja" },
+  "misc.loadingSummary": { en: "Loading summary", id: "Memuat ringkasan" },
+  "misc.userMenu": { en: "User menu", id: "Menu pengguna" },
+  "misc.setupIncomplete": {
+    en: "Connection setup is incomplete. Open Settings to finish.",
+    id: "Koneksi belum lengkap. Buka Pengaturan untuk melengkapinya.",
+  },
+  "misc.openSettings": { en: "Open Settings", id: "Buka Pengaturan" },
+  "misc.targetReached": { en: "Target reached!", id: "Target tercapai!" },
+
+  // Timer
+  "timer.tracking": { en: "Tracking time:", id: "Sedang mencatat:" },
+  "timer.pause": { en: "Pause", id: "Jeda" },
+  "timer.resume": { en: "Resume", id: "Lanjut" },
+  "timer.stopAndLog": { en: "Stop & Log Work", id: "Berhenti & Catat" },
+
+  // Description editor
+  "editor.bold": { en: "Bold", id: "Tebal" },
+  "editor.italic": { en: "Italic", id: "Miring" },
+  "editor.strike": { en: "Strikethrough", id: "Coret" },
+  "editor.underline": { en: "Underline", id: "Garis bawah" },
+  "editor.mono": { en: "Monospace", id: "Monospasi" },
+  "editor.heading": { en: "Heading", id: "Judul" },
+  "editor.bullets": { en: "Bulleted list", id: "Daftar butir" },
+  "editor.numbers": { en: "Numbered list", id: "Daftar bernomor" },
+  "editor.codeBlock": { en: "Code block", id: "Blok kode" },
+  "editor.quote": { en: "Quote", id: "Kutipan" },
+  "editor.divider": { en: "Divider", id: "Pemisah" },
+  "editor.textStyle": { en: "Text style", id: "Gaya teks" },
+  "editor.insertElement": { en: "Insert element", id: "Sisipkan elemen" },
+  "editor.insertLink": { en: "Insert link", id: "Sisipkan link" },
+  "editor.formatLabel": { en: "Format description", id: "Format deskripsi" },
+  "editor.linkText": { en: "Text", id: "Teks" },
+  "editor.linkLabel": { en: "Label (optional)", id: "Label (opsional)" },
+  "editor.insert": { en: "Insert", id: "Sisipkan" },
+
+  // Quick Log tray window
+  "tray.loading": { en: "Loading…", id: "Memuat…" },
+  "tray.needLogin": {
+    en: "Open the main app and log in first.",
+    id: "Buka aplikasi utama dan login terlebih dahulu.",
+  },
+  "tray.todayIs": { en: "Today:", id: "Hari ini:" },
+  "tray.noTemplates": { en: "No templates yet.", id: "Belum ada template." },
+  "tray.issue": { en: "Issue", id: "Issue" },
+  "tray.searching": { en: "Searching…", id: "Mencari…" },
+  "tray.recent": { en: "Recent:", id: "Terakhir:" },
+  "tray.duration": { en: "Duration", id: "Durasi" },
+  "tray.date": { en: "Date", id: "Tanggal" },
+  "tray.description": { en: "Description", id: "Deskripsi" },
+  "tray.running": { en: "Running…", id: "Berjalan…" },
+  "tray.saveTemplate": { en: "Save as template", id: "Simpan sebagai template" },
+  "tray.issuePlaceholder": {
+    en: "Type an issue key or search…",
+    id: "Ketik issue key atau cari…",
+  },
+  "tray.minutes": { en: "Minutes", id: "Menit" },
+
+  // Sisa
+  "editor.url": { en: "URL", id: "URL" },
+  "editor.undo": { en: "Undo", id: "Urungkan" },
+  "editor.redo": { en: "Redo", id: "Ulangi" },
+  "login.loading": { en: "Loading…", id: "Memuat…" },
+  "login.redirecting": {
+    en: "Redirecting to your workspace…",
+    id: "Mengalihkan ke workspace kamu…",
+  },
+  "lang.group": { en: "Language / Bahasa", id: "Bahasa / Language" },
+  "lang.english": { en: "English", id: "Bahasa Inggris" },
+  "lang.indonesian": { en: "Bahasa Indonesia", id: "Bahasa Indonesia" },
+  "recent.title": { en: "Recent Issues", id: "Issue Terakhir" },
+  "recent.empty": {
+    en: "No recent issues. Use the search below to find one.",
+    id: "Belum ada issue terakhir. Pakai pencarian di bawah.",
+  },
+  "chips.label": { en: "Hours to log", id: "Jam yang dicatat" },
+  "unit.day": { en: "day", id: "hari" },
+  "unit.hour": { en: "h", id: "jam" },
+  "unit.minute": { en: "min", id: "menit" },
+
+  // Hint paragraphs
+  "settings.autoHint": {
+    en: "Prepares drafts of recurring activities on the selected workdays. Drafts appear on the calendar for you to review and edit, then go to Jira via the \"Submit changes\" button — nothing is sent automatically. Runs while the app is open.",
+    id: "Menyiapkan draf kegiatan berulang pada hari kerja terpilih. Draf tampil di kalender untuk kamu periksa & ubah dulu, lalu dikirim ke Jira lewat tombol \"Submit changes\" — tidak ada yang terkirim otomatis. Berjalan saat aplikasi dibuka.",
+  },
+  "settings.autostartHint": {
+    en: "The app opens automatically (hidden in the tray) when you log in, so scheduling runs without opening it manually. Closing the window hides it to the tray — quit fully from the tray menu.",
+    id: "Aplikasi dibuka otomatis (tersembunyi di tray) saat kamu login, sehingga penjadwalan berjalan tanpa perlu dibuka manual. Menutup jendela akan menyembunyikan ke tray — keluar penuh lewat menu tray.",
+  },
+  "settings.breakHint": {
+    en: "The duration you enter counts as work hours. Break time does not reduce it — it shifts the end time. Starting at 09:00 for 8 hours means finishing at 18:00, and on the calendar the block splits with the break left clear.",
+    id: "Durasi yang kamu isi dihitung sebagai jam kerja. Jam istirahat tidak memotongnya — ia menggeser jam selesai. Mulai 09:00 selama 8 jam berarti selesai pukul 18:00, dan di kalender bloknya terbagi dengan jam istirahat tetap bersih.",
+  },
+  "settings.breakFridayHint": {
+    en: "Leave the Friday field empty if the break is the same as other days. Weekends are never affected.",
+    id: "Kosongkan kolom Jumat kalau jam istirahatnya sama dengan hari lain. Akhir pekan tidak pernah dipotong.",
+  },
+  "settings.themeHint": {
+    en: "\"Automatic\" follows the operating system theme and switches instantly when the system setting changes.",
+    id: "\"Otomatis\" mengikuti tema sistem operasi dan ikut berubah seketika saat pengaturan sistem diubah.",
+  },
 };
 
-/** Translate a key for the current language; falls back to the key. */
-export function t(key: string): string {
+/**
+ * Translate a key for the current language; falls back to the key itself so
+ * a missing translation is visible rather than blank.
+ *
+ * `params` mengisi placeholder `{nama}` di dalam string. Interpolasi
+ * dilakukan di sini, bukan dengan merangkai potongan kalimat di komponen,
+ * karena urutan kata berbeda antar bahasa — "Version 2 available" tidak
+ * bisa disusun dari potongan yang sama dengan "Versi 2 tersedia".
+ */
+export function t(key: string, params?: Record<string, string | number>): string {
   const entry = DICT[key];
-  return entry ? entry[current] : key;
+  const text = entry ? entry[current] : key;
+  if (!params) return text;
+  return text.replace(/\{(\w+)\}/g, (whole, name) =>
+    name in params ? String(params[name]) : whole,
+  );
 }

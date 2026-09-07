@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../stores/i18n.svelte";
   import { timerStore } from "../stores/timerStore";
   import { onMount, onDestroy } from "svelte";
   import { fade } from "svelte/transition";
@@ -62,7 +63,7 @@
 {#if timerState.issueKey}
   <div class="work-timer glass" transition:fade>
     <div class="timer-info">
-      <span class="timer-label">Tracking Time:</span>
+      <span class="timer-label">{t("timer.tracking")}</span>
       <span class="timer-task">{timerState.issueKey}</span>
     </div>
 
@@ -72,16 +73,16 @@
 
     <div class="timer-controls">
       {#if timerState.running}
-        <button class="timer-btn pause" onclick={() => timerStore.pause()} title="Pause">
+        <button class="timer-btn pause" onclick={() => timerStore.pause()} title={t("timer.pause")}>
           <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
         </button>
       {:else}
-        <button class="timer-btn play" onclick={() => timerStore.resume()} title="Resume">
+        <button class="timer-btn play" onclick={() => timerStore.resume()} title={t("timer.resume")}>
           <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
         </button>
       {/if}
 
-      <button class="timer-btn stop" onclick={handleStop} title="Stop & Log Work">
+      <button class="timer-btn stop" onclick={handleStop} title="{t("timer.stopAndLog")}">
         <svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
       </button>
     </div>
@@ -95,9 +96,9 @@
     gap: 1.25rem;
     padding: 0.75rem 1.25rem;
     border-radius: 1rem;
-    background: rgba(30, 41, 59, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    background: rgb(var(--surface-rgb) / 0.4);
+    border: 1px solid rgb(var(--fg-rgb) / 0.1);
+    box-shadow: 0 8px 32px rgb(var(--shadow-rgb) / calc(0.2 * var(--shadow-strength)));
     backdrop-filter: blur(12px);
     margin-bottom: 1rem;
   }
@@ -112,21 +113,21 @@
     font-size: 0.625rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgb(var(--fg-rgb) / 0.4);
     font-weight: 700;
   }
 
   .timer-task {
     font-size: 0.875rem;
     font-weight: 700;
-    color: #c7d2fe;
+    color: var(--text-accent-strong);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 
   .timer-display {
     font-size: 1.5rem;
     font-weight: 700;
-    color: #ffffff;
+    color: var(--text-strong);
     font-variant-numeric: tabular-nums;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     min-width: 7rem;
@@ -148,7 +149,7 @@
     align-items: center;
     justify-content: center;
     transition: all 150ms ease-out;
-    background: rgba(255, 255, 255, 0.05);
+    background: rgb(var(--fg-rgb) / 0.05);
     color: white;
   }
 
@@ -158,13 +159,13 @@
   }
 
   .timer-btn:hover {
-    background: rgba(255, 255, 255, 0.12);
+    background: rgb(var(--fg-rgb) / 0.12);
     transform: scale(1.05);
   }
 
   .timer-btn.stop {
     background: rgba(244, 63, 94, 0.15);
-    color: #fda4af;
+    color: var(--text-danger);
   }
 
   .timer-btn.stop:hover {
@@ -172,6 +173,6 @@
   }
 
   .timer-btn.play {
-    color: #86efac;
+    color: var(--text-success);
   }
 </style>

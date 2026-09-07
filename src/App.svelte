@@ -9,6 +9,17 @@
     type Credentials,
   } from "./lib/stores/authStore";
   import { clearCacheForEmail } from "./lib/stores/worklogCacheStore";
+  import { initTheme, hydrateTheme } from "./lib/stores/themeStore.svelte";
+
+  // Tema dipasang sedini mungkin: `initTheme` menerapkan preferensi OS dan
+  // memantau perubahannya, lalu `hydrateTheme` menimpanya dengan pilihan
+  // tersimpan user. Urutan ini penting — kalau dibalik, mode `auto` akan
+  // terkunci pada nilai OS saat startup saja.
+  $effect(() => {
+    const stop = initTheme();
+    void hydrateTheme();
+    return stop;
+  });
 
   type AppAuthPhase = "loading" | "unauthenticated" | "authenticated";
 
