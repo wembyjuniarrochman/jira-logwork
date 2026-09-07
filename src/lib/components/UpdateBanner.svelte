@@ -18,6 +18,7 @@
     type AvailableUpdate,
     type DownloadProgress,
   } from "../stores/updaterStore";
+  import { updateCheckRequest } from "../stores/updateSignal.svelte";
 
   type Phase = "idle" | "available" | "installing" | "error";
 
@@ -29,12 +30,17 @@
 
   let percent = $derived(downloadPercent(progress));
 
+  // Berjalan sekali saat mount, lalu setiap kali panel Tentang meminta cek
+  // ulang. Pengecekan manual juga membatalkan status "Nanti" sebelumnya —
+  // user baru saja secara eksplisit menanyakan pembaruan.
   $effect(() => {
+    const requested = updateCheckRequest();
     void (async () => {
       const found = await checkForUpdate();
       if (found) {
         update = found;
         phase = "available";
+        if (requested > 0) dismissed = false;
       }
     })();
   });

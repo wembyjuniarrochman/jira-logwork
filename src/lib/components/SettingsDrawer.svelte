@@ -53,6 +53,8 @@
     isAutostartEnabled,
     setAutostart,
   } from "../stores/autostartStore";
+  import { checkForUpdate, currentVersion } from "../stores/updaterStore";
+  import { requestUpdateCheck } from "../stores/updateSignal.svelte";
 
   interface Props {
     open: boolean;
@@ -366,6 +368,62 @@
       email.trim().length > 0 &&
       apiToken.trim().length > 0
   );
+
+  // --- Tentang aplikasi ---------------------------------------------------
+
+  /** Identitas aplikasi. Ubah di sini kalau nama/kepemilikan berganti —
+   *  nilai yang sama juga ada di `package.json` dan `tauri.conf.json`
+   *  (dipakai properti file Windows dan Info.plist macOS). */
+  const APP_AUTHOR = "wembyjuniarrochman";
+  const APP_REPO = "https://github.com/wembyjuniarrochman/jira-logwork";
+  const APP_COPYRIGHT = "© 2026 wembyjuniarrochman";
+
+  // Versi dibaca dari runtime Tauri, bukan dari konstanta, supaya tidak
+  // pernah melenceng dari versi biner yang sebenarnya berjalan.
+  let appVersion = $state<string>("");
+  let updateChecking = $state<boolean>(false);
+  let updateStatus = $state<string | null>(null);
+
+  $effect(() => {
+    void (async () => {
+      appVersion = await currentVersion();
+    })();
+  });
+
+  /** Buka tautan di browser sistem, bukan di dalam webview aplikasi. */
+  async function openExternal(event: MouseEvent, url: string): Promise<void> {
+    event.preventDefault();
+    try {
+      const { open } = await import("@tauri-apps/plugin-shell");
+      await open(url);
+    } catch {
+      // Preview di browser / tes: jatuh ke window.open agar tautan tetap
+      // berfungsi di luar runtime desktop. Pola yang sama dipakai
+      // CalendarGrid saat membuka issue Jira.
+      window.open(url, "_blank", "noopener");
+    }
+  }
+
+  /**
+   * Cek pembaruan atas permintaan user. Alur unduh + pasang dimiliki
+   * `UpdateBanner`; di sini kita hanya melaporkan hasilnya dan — bila ada
+   * versi baru — memicu banner tersebut lewat `requestUpdateCheck`.
+   */
+  async function handleCheckUpdate(): Promise<void> {
+    updateChecking = true;
+    updateStatus = null;
+    try {
+      const found = await checkForUpdate();
+      if (found) {
+        updateStatus = `Versi ${found.version} tersedia — lihat banner di kanan bawah.`;
+        requestUpdateCheck();
+      } else {
+        updateStatus = "Sudah versi terbaru.";
+      }
+    } finally {
+      updateChecking = false;
+    }
+  }
 </script>
 
 {#if mounted}
@@ -740,6 +798,60 @@
             </div>
           </fieldset>
         </section>
+
+        <!-- ============================================================ -->
+        <!-- Section 5 — Tentang aplikasi                                 -->
+        <!-- ============================================================ -->
+        <section class="drawer-section" aria-labelledby="section-about">
+          <h3 id="section-about" class="section-title">Tentang</h3>
+
+          <dl class="about-list">
+            <dt>Aplikasi</dt>
+            <dd>JIRA Logwork</dd>
+
+            <dt>Versi</dt>
+            <dd>
+              {#if appVersion}
+                <span class="about-version">{appVersion}</span>
+              {:else}
+                <span class="about-muted">—</span>
+              {/if}
+            </dd>
+
+            <dt>Pembuat</dt>
+            <dd>{APP_AUTHOR}</dd>
+
+            <dt>Kode sumber</dt>
+            <dd>
+              <a
+                class="about-link"
+                href={APP_REPO}
+                onclick={(e) => openExternal(e, APP_REPO)}
+              >
+                {APP_REPO.replace("https://github.com/", "")}
+              </a>
+            </dd>
+          </dl>
+
+          <p class="about-copyright">{APP_COPYRIGHT}</p>
+
+          <div class="about-update">
+            <button
+              type="button"
+              class="secondary-btn about-check-btn"
+              onclick={handleCheckUpdate}
+              disabled={updateChecking}
+            >
+              {updateChecking ? "Mengecek…" : "Cek pembaruan"}
+            </button>
+            {#if updateStatus}
+              <span class="about-update-status">{updateStatus}</span>
+            {/if}
+          </div>
+          <p class="section-hint">
+            Pembaruan juga dicek otomatis setiap kali aplikasi dibuka.
+          </p>
+        </section>
       </div>
 
       <footer class="drawer-footer">
@@ -878,6 +990,67 @@
     display: flex;
     flex-direction: column;
     gap: 0.875rem;
+  }
+
+  /* --- Tentang aplikasi ------------------------------------------------ */
+
+  .about-list {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.375rem 1rem;
+    margin: 0;
+    font-size: 0.8125rem;
+  }
+
+  .about-list dt {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .about-list dd {
+    margin: 0;
+    color: #e2e8f0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .about-version {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+
+  .about-muted {
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .about-link {
+    color: #a5b4fc;
+    text-decoration: none;
+  }
+
+  .about-link:hover {
+    text-decoration: underline;
+  }
+
+  .about-copyright {
+    margin: 0;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .about-update {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .about-check-btn {
+    flex-shrink: 0;
+  }
+
+  .about-update-status {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.65);
   }
 
   .section-title {
