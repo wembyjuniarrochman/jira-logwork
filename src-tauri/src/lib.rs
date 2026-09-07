@@ -1,0 +1,892 @@
+mod jira;
+mod activitywatch;
+
+use jira::*;
+use reqwest::Client;
+use serde_json::json;
+use futures::stream::StreamExt;
+use std::sync::Mutex;
+use tauri::{
+    menu::{Menu, MenuItem, PredefinedMenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Emitter, Manager, WindowEvent, WebviewUrl, WebviewWindowBuilder,
+};
+use chrono::{Local, Timelike};
+use tauri_plugin_global_shortcut::GlobalShortcutExt;
+use std::sync::OnceLock;
+use std::time::Duration;
+
+/// Shared HTTP client.
+///
+/// `reqwest::Client` owns its connection pool, so building a new one per
+/// command threw the pool away and forced a fresh TCP + TLS handshake on
+/// every Jira call. One process-wide client keeps connections warm across
+/// commands — worth a few hundred ms on each request, and `get_my_worklogs`
+/// alone issues one request per issue in the range.
+///
+/// Cloning is cheap: the client is reference-counted internally and clones
+/// share the same pool.
+fn http_client() -> &'static Client {
+    static CLIENT: OnceLock<Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        Client::builder()
+            .pool_idle_timeout(Duration::from_secs(90))
+            .timeout(Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| Client::new())
+    })
+}
+
+// --- Timer State (shared between tray menu and windows) ---
+
+/// Extract (x, y, width, height) from a Tauri Rect regardless of Physical/Logical variant.
+fn extract_rect(rect: &tauri::Rect) -> (f64, f64, f64, f64) {
+    let (x, y) = match &rect.position {
+        tauri::Position::Physical(p) => (p.x as f64, p.y as f64),
+        tauri::Position::Logical(p) => (p.x, p.y),
+    };
+    let (w, h) = match &rect.size {
+        tauri::Size::Physical(s) => (s.width as f64, s.height as f64),
+        tauri::Size::Logical(s) => (s.width, s.height),
+    };
+    (x, y, w, h)
+}
+
+/// Last known tray icon position, updated on every tray event.
+#[derive(Debug, Clone, Default)]
+pub struct TrayPosition {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TrayTimerState {
+    pub issue_key: Option<String>,
+    pub summary: Option<String>,
+    pub start_time: Option<u64>, // epoch millis when started
+    pub accumulated_seconds: f64,
+    pub running: bool,
+}
+
+impl Default for TrayTimerState {
+    fn default() -> Self {
+        Self {
+            issue_key: None,
+            summary: None,
+            start_time: None,
+            accumulated_seconds: 0.0,
+            running: false,
+        }
+    }
+}
+
+/// Bring the main window back to the foreground (from the tray / minimized).
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+/// Open or focus the Quick Log mini window near the tray icon.
+fn open_quicklog_window(app: &tauri::AppHandle) {
+    open_quicklog_window_at(app, None);
+}
+
+/// Open or focus the Quick Log mini window, optionally positioned near coordinates.
+fn open_quicklog_window_at(app: &tauri::AppHandle, tray_position: Option<(f64, f64)>) {
+    if let Some(w) = app.get_webview_window("quicklog") {
+        let _ = w.show();
+        let _ = w.set_focus();
+        return;
+    }
+
+    let win_width = 380.0;
+    let win_height = 520.0;
+
+    let mut builder = WebviewWindowBuilder::new(app, "quicklog", WebviewUrl::App("quicklog.html".into()))
+        .title("Quick Log")
+        .inner_size(win_width, win_height)
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .always_on_top(true)
+        .visible(true)
+        .decorations(true);
+
+    if let Some((x, y)) = tray_position {
+        // Position window so its top-center aligns with the tray icon center,
+        // just below the menu bar (y is already the bottom of the tray icon area)
+        let win_x = (x - win_width / 2.0).max(0.0);
+        let win_y = y;
+        builder = builder.position(win_x, win_y);
+    } else {
+        builder = builder.center();
+    }
+
+    let _ = builder.build();
+}
+
+// --- Tauri commands for timer ---
+
+#[tauri::command]
+fn get_timer_state(state: tauri::State<'_, Mutex<TrayTimerState>>) -> TrayTimerState {
+    state.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn start_timer(state: tauri::State<'_, Mutex<TrayTimerState>>, issue_key: String, summary: String) -> TrayTimerState {
+    let mut s = state.lock().unwrap();
+    s.issue_key = Some(issue_key);
+    s.summary = Some(summary);
+    s.start_time = Some(std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64);
+    s.running = true;
+    s.clone()
+}
+
+#[tauri::command]
+fn stop_timer(state: tauri::State<'_, Mutex<TrayTimerState>>) -> TrayTimerState {
+    let mut s = state.lock().unwrap();
+    if s.running {
+        if let Some(start) = s.start_time {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+            let elapsed = (now - start) as f64 / 1000.0;
+            s.accumulated_seconds += elapsed;
+        }
+        s.start_time = None;
+        s.running = false;
+    }
+    s.clone()
+}
+
+#[tauri::command]
+fn reset_timer(state: tauri::State<'_, Mutex<TrayTimerState>>) -> TrayTimerState {
+    let mut s = state.lock().unwrap();
+    *s = TrayTimerState::default();
+    s.clone()
+}
+
+#[tauri::command]
+fn open_quicklog(app: tauri::AppHandle) {
+    open_quicklog_window(&app);
+}
+
+#[tauri::command]
+async fn test_connection(base_url: String, email: String, api_token: String, is_cloud: bool) -> Result<String, String> {
+    let config = JiraConfig { base_url, email, api_token, is_cloud };
+    let client = http_client().clone();
+    let resp = client.get(&format!("{}/myself", config.api_base()))
+        .header("Authorization", config.auth_header())
+        .header("Content-Type", "application/json")
+        .send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
+    }
+    let user: JiraUser = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(user.display_name)
+}
+
+#[tauri::command]
+async fn get_projects(base_url: String, email: String, api_token: String, is_cloud: bool) -> Result<Vec<JiraProject>, String> {
+    let config = JiraConfig { base_url, email, api_token, is_cloud };
+    let client = http_client().clone();
+    let resp = client.get(&format!("{}/project", config.api_base()))
+        .header("Authorization", config.auth_header())
+        .header("Content-Type", "application/json")
+        .send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() { return Err(format!("HTTP {}", resp.status())); }
+    resp.json().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn search_issues(base_url: String, email: String, api_token: String, is_cloud: bool, project_key: String, query: String) -> Result<String, String> {
+    let config = JiraConfig { base_url, email, api_token, is_cloud };
+    let client = http_client().clone();
+    let jql = if query.is_empty() {
+        format!("project = {} ORDER BY updated DESC", project_key)
+    } else {
+        format!("project = {} AND summary ~ \"{}\" ORDER BY updated DESC", project_key, query)
+    };
+    let url = format!("{}/rest/api/3/search/jql?jql={}&maxResults=50&fields=summary,issuetype,subtasks",
+        config.base_url.trim_end_matches('/'), urlencoding::encode(&jql));
+    let resp = client.get(&url)
+        .header("Authorization", config.auth_header())
+        .header("Content-Type", "application/json")
+        .send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
+    }
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    Ok(text)
+}
+
+#[tauri::command]
+async fn add_worklog(base_url: String, email: String, api_token: String, is_cloud: bool, issue_key: String, time_spent_seconds: u64, started: String, comment: String) -> Result<String, String> {
+    let config = JiraConfig { base_url, email, api_token, is_cloud };
+    let client = http_client().clone();
+    let url = format!("{}/issue/{}/worklog", config.api_base(), issue_key);
+    let body = json!({
+        "timeSpentSeconds": time_spent_seconds,
+        "started": started,
+        "comment": comment
+    });
+    let resp = client.post(&url)
+        .header("Authorization", config.auth_header())
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
+    }
+    Ok("Worklog added".to_string())
+}
+
+/// Update an existing worklog's date / duration / comment. Used by the
+/// calendar drag-and-drop to move a worklog entry between dates without
+/// going through delete+create (which would lose the worklog id and any
+/// linked metadata).
+#[tauri::command]
+async fn update_worklog(
+    base_url: String,
+    email: String,
+    api_token: String,
+    is_cloud: bool,
+    issue_key: String,
+    worklog_id: String,
+    time_spent_seconds: u64,
+    started: String,
+    comment: Option<String>,
+) -> Result<String, String> {
+    let config = JiraConfig { base_url, email, api_token, is_cloud };
+    let client = http_client().clone();
+    let url = format!("{}/issue/{}/worklog/{}", config.api_base(), issue_key, worklog_id);
+    let mut body = serde_json::Map::new();
+    body.insert("timeSpentSeconds".to_string(), json!(time_spent_seconds));
+    body.insert("started".to_string(), json!(started));
+    if let Some(c) = comment {
+        body.insert("comment".to_string(), json!(c));
+    }
+    let resp = client.put(&url)
+        .header("Authorization", config.auth_header())
+        .header("Content-Type", "application/json")
+        .json(&serde_json::Value::Object(body))
+        .send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
+    }
+    Ok("Worklog updated".to_string())
+}
+
+#[tauri::command]
+async fn get_worklogs(base_url: String, email: String, api_token: String, is_cloud: bool, issue_key: String) -> Result<Vec<Worklog>, String> {
+    let config = JiraConfig { base_url, email, api_token, is_cloud };
+    let client = http_client().clone();
+    let resp = client.get(&format!("{}/issue/{}/worklog", config.api_base(), issue_key))
+        .header("Authorization", config.auth_header())
+        .header("Content-Type", "application/json")
+        .send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() { return Err(format!("HTTP {}", resp.status())); }
+    let result: WorklogResponse = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(result.worklogs)
+}
+
+/// Fetch direct children of an issue (Epic → Tasks/Stories, Task/Story →
+/// Sub-tasks) via JQL `parent = "KEY"`. The unified `parent` field works
+/// for both hierarchy levels in modern Jira Cloud (≥ 2022) and Server
+/// 8.x+ instances. Capped at 50 results to match the picker UI; callers
+/// that hit the cap can fall back to the regular search input to drill
+/// further.
+#[tauri::command]
+async fn get_issue_children(base_url: String, email: String, api_token: String, is_cloud: bool, parent_key: String) -> Result<String, String> {
+    let config = JiraConfig { base_url, email, api_token, is_cloud };
+    let client = http_client().clone();
+    let jql = format!("parent = \"{}\" ORDER BY created ASC", parent_key);
+    let url = format!("{}/rest/api/3/search/jql?jql={}&maxResults=50&fields=summary,issuetype,subtasks",
+        config.base_url.trim_end_matches('/'), urlencoding::encode(&jql));
+    let resp = client.get(&url)
+        .header("Authorization", config.auth_header())
+        .header("Content-Type", "application/json")
+        .send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
+    }
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    Ok(text)
+}
+
+/// Given a list of parent issue keys, return only the keys that actually
+/// have at least one child issue (via JQL `parent in (...)`). Used by
+/// UniversalSearch to decide upfront whether an Epic row gets a chevron
+/// in the tree picker — Tasks/Stories use the `subtasks` field directly,
+/// but Epics can't be detected that way (their children are linked by
+/// `parent`, not the legacy `subtasks` field).
+#[tauri::command]
+async fn get_parents_with_children(base_url: String, email: String, api_token: String, is_cloud: bool, parent_keys: Vec<String>) -> Result<Vec<String>, String> {
+    if parent_keys.is_empty() {
+        return Ok(Vec::new());
+    }
+    let config = JiraConfig { base_url, email, api_token, is_cloud };
+    let client = http_client().clone();
+    // Build a quoted, comma-separated key list. Keys that contain a quote
+    // would be rejected by Jira anyway, so a defensive filter keeps the
+    // JQL well-formed.
+    let quoted: Vec<String> = parent_keys
+        .iter()
+        .filter(|k| !k.contains('"') && !k.is_empty())
+        .map(|k| format!("\"{}\"", k))
+        .collect();
+    if quoted.is_empty() {
+        return Ok(Vec::new());
+    }
+    let jql = format!("parent in ({})", quoted.join(","));
+    // We only need the parent link for each match — `fields=parent` keeps
+    // payload tiny even when the result set is large.
+    let url = format!("{}/rest/api/3/search/jql?jql={}&maxResults=500&fields=parent",
+        config.base_url.trim_end_matches('/'), urlencoding::encode(&jql));
+    let resp = client.get(&url)
+        .header("Authorization", config.auth_header())
+        .header("Content-Type", "application/json")
+        .send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
+    }
+    let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let issues = data["issues"].as_array().cloned().unwrap_or_default();
+    let mut found: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for issue in issues {
+        if let Some(parent_key) = issue["fields"]["parent"]["key"].as_str() {
+            found.insert(parent_key.to_string());
+        }
+    }
+    Ok(found.into_iter().collect())
+}
+/// JQL: `project = "KEY" AND issuetype = Epic ORDER BY created DESC`.
+/// Tasks and sub-tasks are loaded later via `get_issue_children` when the
+/// user expands an Epic / Task in the tree.
+#[tauri::command]
+async fn get_project_epics(base_url: String, email: String, api_token: String, is_cloud: bool, project_key: String) -> Result<String, String> {
+    let config = JiraConfig { base_url, email, api_token, is_cloud };
+    let client = http_client().clone();
+    let jql = format!(
+        "project = \"{}\" AND issuetype = Epic ORDER BY created DESC",
+        project_key
+    );
+    let url = format!("{}/rest/api/3/search/jql?jql={}&maxResults=100&fields=summary,issuetype,subtasks",
+        config.base_url.trim_end_matches('/'), urlencoding::encode(&jql));
+    let resp = client.get(&url)
+        .header("Authorization", config.auth_header())
+        .header("Content-Type", "application/json")
+        .send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
+    }
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    Ok(text)
+}
+
+
+/// Create a new Jira issue under `parent_key`. Used for "Add Task" inside an
+/// Epic and "Add Sub-task" inside a Task/Story/Bug. `custom_fields` is a free
+/// map of `customfield_XXXXX` → JSON value, so the frontend can attach
+/// instance-specific fields (e.g. "Work Reference") without the Rust side
+/// hard-coding their IDs.
+#[tauri::command]
+async fn create_issue(
+    base_url: String,
+    email: String,
+    api_token: String,
+    is_cloud: bool,
+    project_key: String,
+    issuetype_name: String,
+    summary: String,
+    parent_key: Option<String>,
+    assignee_account_id: Option<String>,
+    custom_fields: Option<serde_json::Map<String, serde_json::Value>>,
+) -> Result<String, String> {
+    let config = JiraConfig { base_url, email, api_token, is_cloud };
+    let client = http_client().clone();
+    let url = format!("{}/rest/api/3/issue", config.base_url.trim_end_matches('/'));
+
+    let mut fields = serde_json::Map::new();
+    fields.insert("project".to_string(), json!({ "key": project_key }));
+    fields.insert("issuetype".to_string(), json!({ "name": issuetype_name }));
+    fields.insert("summary".to_string(), json!(summary));
+    if let Some(parent) = parent_key {
+        if !parent.is_empty() {
+            fields.insert("parent".to_string(), json!({ "key": parent }));
+        }
+    }
+    if let Some(acc_id) = assignee_account_id {
+        if !acc_id.is_empty() {
+            // Cloud uses accountId; Server/DC uses name. We default to
+            // accountId since the codebase elsewhere assumes Cloud-style
+            // identifiers — adjust here if Server support is needed.
+            if config.is_cloud {
+                fields.insert("assignee".to_string(), json!({ "accountId": acc_id }));
+            } else {
+                fields.insert("assignee".to_string(), json!({ "name": acc_id }));
+            }
+        }
+    }
+    if let Some(cf) = custom_fields {
+        for (k, v) in cf {
+            fields.insert(k, v);
+        }
+    }
+    let body = json!({ "fields": fields });
+
+    let resp = client.post(&url)
+        .header("Authorization", config.auth_header())
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
+    }
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    Ok(text)
+}
+
+/// Fetch users assignable to a given project, used to populate the assignee
+/// dropdown in the Add-Task / Add-Subtask inline form. Capped at 50 to match
+/// other pickers in the app.
+#[tauri::command]
+async fn get_assignable_users(
+    base_url: String,
+    email: String,
+    api_token: String,
+    is_cloud: bool,
+    project_key: String,
+) -> Result<String, String> {
+    let config = JiraConfig { base_url, email, api_token, is_cloud };
+    let client = http_client().clone();
+    let url = format!(
+        "{}/rest/api/3/user/assignable/search?project={}&maxResults=50",
+        config.base_url.trim_end_matches('/'),
+        urlencoding::encode(&project_key),
+    );
+    let resp = client.get(&url)
+        .header("Authorization", config.auth_header())
+        .header("Content-Type", "application/json")
+        .send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
+    }
+    resp.text().await.map_err(|e| e.to_string())
+}
+
+/// Fetch full createmeta (issuetypes + fields + allowed values) for a project.
+/// The frontend uses the response to: (1) discover the subtask issuetype name
+/// without hard-coding "Sub-task" vs "Subtask", (2) populate the issuetype
+/// dropdown, and (3) discover custom fields like "Work Reference" with their
+/// `allowedValues`.
+#[tauri::command]
+async fn get_create_meta(
+    base_url: String,
+    email: String,
+    api_token: String,
+    is_cloud: bool,
+    project_key: String,
+) -> Result<String, String> {
+    let config = JiraConfig { base_url, email, api_token, is_cloud };
+    let client = http_client().clone();
+    let url = format!(
+        "{}/rest/api/3/issue/createmeta?projectKeys={}&expand=projects.issuetypes.fields",
+        config.base_url.trim_end_matches('/'),
+        urlencoding::encode(&project_key),
+    );
+    let resp = client.get(&url)
+        .header("Authorization", config.auth_header())
+        .header("Content-Type", "application/json")
+        .send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
+    }
+    resp.text().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_my_worklogs(base_url: String, email: String, api_token: String, is_cloud: bool, start_date: String, end_date: String) -> Result<String, String> {
+    let config = JiraConfig { base_url, email, api_token, is_cloud };
+    let client = http_client().clone();
+
+    // Step 0: Resolve the authenticated user's identity from /myself.
+    // We collect every identifier Jira may return (accountId on Cloud,
+    // name/key on Server/DC, emailAddress where exposed) so we can match
+    // a worklog's author robustly regardless of deployment or privacy
+    // settings.
+    let myself_url = format!("{}/myself", config.api_base());
+    let myself_resp = client.get(&myself_url)
+        .header("Authorization", config.auth_header())
+        .header("Content-Type", "application/json")
+        .send().await.map_err(|e| e.to_string())?;
+    if !myself_resp.status().is_success() {
+        return Err(format!(
+            "HTTP {}: {}",
+            myself_resp.status(),
+            myself_resp.text().await.unwrap_or_default()
+        ));
+    }
+    let me: serde_json::Value = myself_resp.json().await.map_err(|e| e.to_string())?;
+    let my_account_id = me["accountId"].as_str().unwrap_or("").to_string();
+    let my_name = me["name"].as_str().unwrap_or("").to_string();
+    let my_key = me["key"].as_str().unwrap_or("").to_string();
+    let my_email_lc = me["emailAddress"]
+        .as_str()
+        .unwrap_or(&config.email)
+        .trim()
+        .to_lowercase();
+    let cred_email_lc = config.email.trim().to_lowercase();
+
+    // Pure: returns true iff `worklog.author` belongs to the authenticated
+    // user. We compare every available identifier; any single match wins.
+    let is_mine = |worklog: &serde_json::Value| -> bool {
+        let author = &worklog["author"];
+        if !my_account_id.is_empty() {
+            if author["accountId"].as_str() == Some(&my_account_id) {
+                return true;
+            }
+        }
+        if !my_key.is_empty() {
+            if author["key"].as_str() == Some(&my_key) {
+                return true;
+            }
+        }
+        if !my_name.is_empty() {
+            if author["name"].as_str() == Some(&my_name) {
+                return true;
+            }
+        }
+        let author_email_lc = author["emailAddress"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_lowercase();
+        if !author_email_lc.is_empty() {
+            if author_email_lc == my_email_lc || author_email_lc == cred_email_lc {
+                return true;
+            }
+        }
+        false
+    };
+
+    // Step 1: Find issues with my worklogs in the requested range.
+    // worklogAuthor = currentUser() restricts the search to issues where I
+    // have logged at least one worklog; the per-worklog filter below then
+    // drops any non-mine entries on those issues.
+    let jql = format!("worklogDate >= '{}' AND worklogDate <= '{}' AND worklogAuthor = currentUser() ORDER BY updated DESC", start_date, end_date);
+    let search_url = format!("{}/rest/api/3/search/jql?jql={}&maxResults=1000&fields=summary,issuetype",
+        config.base_url.trim_end_matches('/'), urlencoding::encode(&jql));
+    let resp = client.get(&search_url)
+        .header("Authorization", config.auth_header())
+        .header("Content-Type", "application/json")
+        .send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
+    }
+    let search_result: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let issues = search_result["issues"].as_array().cloned().unwrap_or_default();
+
+    // Step 2: For each issue, fetch its worklogs and keep only mine.
+    // Run in parallel (concurrency limit 8) so the response time is bounded
+    // by the slowest worklog request rather than the sum of all of them.
+    // The previous sequential loop took ~N * RTT; the parallel version
+    // typically completes in ~ceil(N/8) * RTT.
+    const CONCURRENCY: usize = 8;
+    let api_base = config.api_base();
+    let auth = config.auth_header();
+
+    // Build owned per-issue futures so the iterator is `Send`.
+    let issue_inputs: Vec<(String, String)> = issues
+        .iter()
+        .map(|issue| {
+            (
+                issue["key"].as_str().unwrap_or("").to_string(),
+                issue["fields"]["summary"].as_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect();
+
+    let fetched: Vec<(String, String, Vec<serde_json::Value>)> =
+        futures::stream::iter(issue_inputs.into_iter().map(|(key, summary)| {
+            let client = client.clone();
+            let api_base = api_base.clone();
+            let auth = auth.clone();
+            async move {
+                if key.is_empty() {
+                    return (key, summary, Vec::new());
+                }
+                let wl_url = format!("{}/issue/{}/worklog?maxResults=1000", api_base, key);
+                let wl_resp = client
+                    .get(&wl_url)
+                    .header("Authorization", auth)
+                    .header("Content-Type", "application/json")
+                    .send()
+                    .await;
+                let worklogs = match wl_resp {
+                    Ok(r) if r.status().is_success() => {
+                        let wl_data: serde_json::Value =
+                            r.json().await.unwrap_or(json!({"worklogs":[]}));
+                        wl_data["worklogs"].as_array().cloned().unwrap_or_default()
+                    }
+                    _ => Vec::new(),
+                };
+                (key, summary, worklogs)
+            }
+        }))
+        .buffer_unordered(CONCURRENCY)
+        .collect()
+        .await;
+
+    let mut result_issues: Vec<serde_json::Value> = Vec::new();
+    for (key, summary, all) in fetched {
+        let mine: Vec<serde_json::Value> =
+            all.into_iter().filter(|w| is_mine(w)).collect();
+        if mine.is_empty() {
+            continue;
+        }
+        result_issues.push(json!({
+            "key": key,
+            "fields": { "summary": summary, "worklog": { "worklogs": mine } }
+        }));
+    }
+
+    let result = json!({ "issues": result_issues });
+    Ok(result.to_string())
+}
+
+#[tauri::command]
+async fn delete_worklog(
+    base_url: String,
+    email: String,
+    api_token: String,
+    is_cloud: bool,
+    issue_key: String,
+    worklog_id: String,
+) -> Result<String, String> {
+    let config = JiraConfig { base_url, email, api_token, is_cloud };
+    let client = http_client().clone();
+    let url = format!("{}/issue/{}/worklog/{}", config.api_base(), issue_key, worklog_id);
+    let resp = client.delete(&url)
+        .header("Authorization", config.auth_header())
+        .header("Content-Type", "application/json")
+        .send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
+    }
+    Ok("Worklog deleted".to_string())
+}
+
+#[tauri::command]
+fn update_tray_tooltip(app: tauri::AppHandle, status: String) -> Result<(), String> {
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        tray.set_tooltip(Some(&status)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        // Autostart at login (Level 2). The `--minimized` arg lets the setup
+        // hook start the app hidden in the tray when launched automatically.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--minimized"]),
+        ))
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .manage(Mutex::new(TrayTimerState::default()))
+        .manage(Mutex::new(TrayPosition::default()))
+        .setup(|app| {
+            // System tray so the app can keep running (and auto-log worklogs)
+            // in the background while the main window is closed.
+            let quicklog_i =
+                MenuItem::with_id(app, "quicklog", "⚡ Quick Log", true, None::<&str>)?;
+            let timer_i =
+                MenuItem::with_id(app, "timer", "⏱ Start Timer", true, None::<&str>)?;
+            let sep1 = PredefinedMenuItem::separator(app)?;
+            let show_i =
+                MenuItem::with_id(app, "show", "Buka JIRA Logwork", true, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "quit", "Keluar", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&quicklog_i, &timer_i, &sep1, &show_i, &quit_i])?;
+
+            TrayIconBuilder::with_id("main-tray")
+                .icon(app.default_window_icon().unwrap().clone())
+                .tooltip("JIRA Logwork")
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "quicklog" => {
+                        let pos = app.state::<Mutex<TrayPosition>>();
+                        let p = pos.lock().unwrap();
+                        let position = if p.x > 0.0 { Some((p.x, p.y)) } else { None };
+                        drop(p);
+                        open_quicklog_window_at(app, position);
+                    }
+                    "timer" => {
+                        // Toggle timer: if running → stop & open quicklog, if stopped → open quicklog
+                        let state = app.state::<Mutex<TrayTimerState>>();
+                        let running = {
+                            let s = state.lock().unwrap();
+                            s.running
+                        };
+                        if running {
+                            let mut s = state.lock().unwrap();
+                            if let Some(start) = s.start_time {
+                                let now = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+                                let elapsed = (now - start) as f64 / 1000.0;
+                                s.accumulated_seconds += elapsed;
+                            }
+                            s.start_time = None;
+                            s.running = false;
+                            drop(s);
+                        }
+                        let pos = app.state::<Mutex<TrayPosition>>();
+                        let p = pos.lock().unwrap();
+                        let position = if p.x > 0.0 { Some((p.x, p.y)) } else { None };
+                        drop(p);
+                        open_quicklog_window_at(app, position);
+                    }
+                    "show" => show_main_window(app),
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    match event {
+                        TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            rect,
+                            ..
+                        } => {
+                            let (rx, ry, rw, rh) = extract_rect(&rect);
+                            let icon_x = rx + rw / 2.0;
+                            let icon_y = ry + rh;
+                            // Store for menu events
+                            {
+                                let pos = tray.app_handle().state::<Mutex<TrayPosition>>();
+                                let mut p = pos.lock().unwrap();
+                                p.x = icon_x;
+                                p.y = icon_y;
+                            }
+                            // Open Quick Log near tray icon
+                            open_quicklog_window_at(tray.app_handle(), Some((icon_x, icon_y)));
+                        }
+                        TrayIconEvent::Click {
+                            button: MouseButton::Right,
+                            rect,
+                            ..
+                        } => {
+                            let (rx, ry, rw, rh) = extract_rect(&rect);
+                            let pos = tray.app_handle().state::<Mutex<TrayPosition>>();
+                            let mut p = pos.lock().unwrap();
+                            p.x = rx + rw / 2.0;
+                            p.y = ry + rh;
+                        }
+                        _ => {}
+                    }
+                })
+                .build(app)?;
+
+            // --- Global Shortcut: CmdOrCtrl+Shift+L to open Quick Log ---
+            // Non-fatal: on macOS this requires Accessibility permission which
+            // may not be granted yet. The app should still work without it.
+            let shortcut_handle = app.handle().clone();
+            if let Err(e) = app.global_shortcut().on_shortcut("CmdOrCtrl+Shift+L", move |_app, _shortcut, _event| {
+                open_quicklog_window(&shortcut_handle);
+            }) {
+                eprintln!("[warn] Failed to register global shortcut: {e}. App continues without it.");
+            }
+
+            // --- Background task: reminder checks & long-running timer ---
+            let bg_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                // Initial delay: wait 60s before first check to let app finish startup
+                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+
+                let mut last_reminder_hour: Option<u32> = None;
+                loop {
+                    let now = Local::now();
+                    let hour = now.hour();
+
+                    // Emit reminder-check at 11:00 and 16:00 (within the 30-min window)
+                    if (hour == 11 || hour == 16) && last_reminder_hour != Some(hour) {
+                        let _ = bg_handle.emit("reminder-check", json!({
+                            "hour": hour
+                        }));
+                        last_reminder_hour = Some(hour);
+                    } else if hour != 11 && hour != 16 {
+                        last_reminder_hour = None;
+                    }
+
+                    // Check if timer has been running > 4 hours
+                    let state = bg_handle.state::<Mutex<TrayTimerState>>();
+                    let should_warn = {
+                        let s = state.lock().unwrap();
+                        if s.running {
+                            if let Some(start) = s.start_time {
+                                let now_ms = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis() as u64;
+                                let elapsed_hours = (now_ms - start) as f64 / 1000.0 / 3600.0;
+                                elapsed_hours > 4.0
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    };
+                    if should_warn {
+                        let _ = bg_handle.emit("timer-long-running", json!({
+                            "message": "Timer sudah berjalan lebih dari 4 jam"
+                        }));
+                    }
+
+                    tokio::time::sleep(tokio::time::Duration::from_secs(30 * 60)).await;
+                }
+            });
+
+            // When launched at login (autostart passes `--minimized`), start
+            // hidden in the tray instead of popping the window open.
+            if std::env::args().any(|a| a == "--minimized") {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.hide();
+                }
+            }
+
+            Ok(())
+        })
+        // Closing the window hides it to the tray rather than quitting, so the
+        // background scheduler stays alive. Full exit is via the tray "Keluar".
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                // Only hide-to-tray the main window; quick log window should
+                // close normally.
+                if window.label() == "main" {
+                    let _ = window.hide();
+                    api.prevent_close();
+                }
+            }
+        })
+        .invoke_handler(tauri::generate_handler![
+            test_connection, get_projects, search_issues, add_worklog, get_worklogs,
+            activitywatch::check_activitywatch, activitywatch::get_aw_buckets, activitywatch::get_aw_events,
+            get_my_worklogs, get_issue_children, get_project_epics, get_parents_with_children,
+            create_issue, get_assignable_users, get_create_meta,
+            update_worklog, delete_worklog,
+            get_timer_state, start_timer, stop_timer, reset_timer, open_quicklog,
+            update_tray_tooltip
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

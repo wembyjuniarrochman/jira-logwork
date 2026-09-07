@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2684FF"/>
+      <stop offset="100%" stop-color="#0052CC"/>
+    </linearGradient>
+    <filter id="inner" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect x="0" y="0" width="1024" height="1024" rx="225" ry="225" fill="url(#bg)"/>
+
+  <!-- Subtle highlight -->
+  <rect x="0" y="0" width="1024" height="512" rx="225" ry="225" fill="#ffffff" opacity="0.06"/>
+
+  <!-- Clock face -->
+  <circle cx="512" cy="512" r="300" fill="#ffffff"/>
+  <circle cx="512" cy="512" r="300" fill="none" stroke="#0747A6" stroke-width="18" opacity="0.15"/>
+
+  <!-- Hour ticks -->
+  <g stroke="#0747A6" stroke-width="14" stroke-linecap="round" opacity="0.85">
+    <line x1="512" y1="240" x2="512" y2="280"/>
+    <line x1="784" y1="512" x2="744" y2="512"/>
+    <line x1="512" y1="784" x2="512" y2="744"/>
+    <line x1="240" y1="512" x2="280" y2="512"/>
+  </g>
+
+  <!-- Clock hands: hour pointing to ~10, minute to ~2 (forming a check-like V) -->
+  <line x1="512" y1="512" x2="380" y2="380" stroke="#0747A6" stroke-width="28" stroke-linecap="round"/>
+  <line x1="512" y1="512" x2="660" y2="360" stroke="#0052CC" stroke-width="20" stroke-linecap="round"/>
+  <circle cx="512" cy="512" r="26" fill="#0747A6"/>
+
+  <!-- Checkmark badge bottom-right -->
+  <circle cx="760" cy="760" r="140" fill="#36B37E" stroke="#ffffff" stroke-width="22"/>
+  <polyline points="690,760 745,815 835,710" fill="none" stroke="#ffffff" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

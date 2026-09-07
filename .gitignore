@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+src-tauri/target/
+
+# Artefak rilis (dihasilkan ulang tiap build; diunggah ke GitHub Releases)
+dist-windows/
+dist-macos/
+*.zip
+
+# JANGAN PERNAH di-commit: kunci privat penandatanganan update.
+# Siapa pun yang memilikinya bisa mendorong update ke semua mesin user.
+*.key
+*.pem
+
+# Proyek internal terpisah + arsip sumbernya. Keduanya memuat kredensial
+# Bitbucket internal di URL remote-nya, jadi tetap di luar repo ini.
+jira-worklog-tracker/
+jira-logwork-source.zip
+
+# Kredensial pada umumnya
+.env
+.env.*
+*.p12
+*.mobileprovision
+
+# OS / editor
+.DS_Store
+Thumbs.db

@@ -1,0 +1,17 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities",
+  "windows": ["*"],
+  "permissions": [
+    "core:default",
+    "store:default",
+    "notification:default",
+    "shell:default",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled",
+    "global-shortcut:allow-register",
+    "updater:default",
+    "process:allow-restart"
+  ]
+}

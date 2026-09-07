@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+/* -------------------------------------------------------------------------
+ * Glass-Morphism Style Tokens
+ * Defined per design "Glass-Morphism Style Tokens" section. Components
+ * reference these tokens (never raw values) to keep the visual language
+ * consistent with the login page.
+ * ------------------------------------------------------------------------- */
+:root {
+  --glass-bg:        rgba(255, 255, 255, 0.05);
+  --glass-bg-strong: rgba(255, 255, 255, 0.08);
+  --glass-border:    rgba(255, 255, 255, 0.10);
+  --glass-blur:      20px;
+  --glass-shadow:    0 25px 50px -12px rgba(0, 0, 0, 0.5),
+                     inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  --glass-radius:    1.25rem;
+
+  --accent-from:     #6366f1; /* indigo-500 */
+  --accent-to:       #8b5cf6; /* violet-500 */
+  --focus-ring:      0 0 0 3px rgba(99, 102, 241, 0.55);
+
+  --intensity-0:     rgba(255, 255, 255, 0.06);
+  --intensity-1:     rgba(99, 102, 241, 0.25);
+  --intensity-2:     rgba(99, 102, 241, 0.45);
+  --intensity-3:     rgba(99, 102, 241, 0.70);
+  --intensity-4:     rgba(139, 92, 246, 0.95);
+
+  /* Opaque bases sitting *under* the translucent white tint.
+   *
+   * `backdrop-filter` is an enhancement, never a guarantee — it does not
+   * paint in the Windows WebView2 build. Surfaces that leaned on blur alone
+   * for legibility turned into clear panes there: the login card showed the
+   * animated curves straight through it, and the settings drawer let the
+   * calendar bleed through its own labels. These tokens give every glass
+   * surface enough body to read unaided, with blur layered on where the
+   * platform supports it. */
+  --surface-base:    rgba(13, 19, 33, 0.66);
+  --surface-overlay: rgba(13, 19, 33, 0.94);
+}
+
+/* Reusable glass surface utility applied to the Header, Heatmap container,
+ * Quick Log Card, Weekly Summary, Settings Drawer, and any other
+ * translucent panel. */
+.glass {
+  /* The tint is layered as an image over an opaque base so the surface
+     stays readable when `backdrop-filter` is unavailable. */
+  background:
+    linear-gradient(var(--glass-bg), var(--glass-bg)),
+    var(--surface-base);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  border-radius: var(--glass-radius);
+}
+
+/* Modal-class surfaces — drawer, popover, dropdown — float above dense
+ * content, so they need to be near-opaque rather than merely tinted.
+ * Applied alongside `.glass`, which it overrides by cascade order. */
+.glass-overlay {
+  background:
+    linear-gradient(var(--glass-bg), var(--glass-bg)),
+    var(--surface-overlay);
+}
+
+/* -------------------------------------------------------------------------
+ * Reduced-motion overrides
+ * Disable decorative transforms/animations when the OS reports
+ * prefers-reduced-motion: reduce. Counter intermediate frames and the
+ * drawer slide animation are the two surfaces that rely on transforms.
+ * ------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .drawer-panel,
+  .drawer-panel * {
+    transition: none !important;
+    animation: none !important;
+    transform: none !important;
+  }
+
+  .animated-counter,
+  .animated-counter * {
+    transition: none !important;
+    animation: none !important;
+    transform: none !important;
+  }
+}
