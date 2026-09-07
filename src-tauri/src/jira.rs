@@ -37,30 +37,15 @@ pub struct JiraProject {
     pub name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct JiraIssue {
-    pub id: String,
-    pub key: String,
-    pub fields: JiraIssueFields,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct JiraIssueFields {
-    pub summary: String,
-    #[serde(default)]
-    pub issuetype: Option<IssueType>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct IssueType {
-    pub name: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SearchResult {
-    pub issues: Vec<JiraIssue>,
-    pub total: u32,
-}
+// Catatan: tidak ada tipe untuk respons pencarian issue di sini.
+//
+// `search_issues`, `get_project_epics`, dan `get_create_meta` mengembalikan
+// `Result<String, String>` — JSON mentah diteruskan apa adanya, dan frontend
+// yang mem-parsingnya di `searchStore.ts`. Struct `JiraIssue`, `IssueType`,
+// dan `SearchResult` dulu ada di sini tetapi tidak pernah tersambung ke satu
+// pun perintah, jadi ia hanya kontrak kedua yang bisa diam-diam menyimpang
+// dari yang sungguhan. Kalau suatu saat parsing dipindahkan ke Rust, tipenya
+// dibuat berbarengan dengan pemakaiannya.
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Worklog {
