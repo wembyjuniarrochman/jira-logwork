@@ -91,15 +91,16 @@ try {
   const current = pkg.version;
 
   const rank = (v) => v.split(".").map(Number).reduce((a, n) => a * 1000 + n, 0);
-  if (rank(version) <= rank(current)) {
+  if (rank(version) < rank(current)) {
     die(
-      `versi ${version} tidak lebih tinggi dari ${current}.`,
-      "Updater membandingkan nomor versi, bukan isi paket. Versi yang sama " +
-        "atau lebih rendah tidak akan pernah memicu pembaruan.",
+      `versi ${version} lebih rendah dari ${current}.`,
+      "Updater membandingkan nomor versi, bukan isi paket. Versi yang lebih " +
+        "rendah tidak akan pernah memicu pembaruan.",
     );
   }
 
   const tag = `v${version}`;
+  const isRebuild = rank(version) === rank(current);
 
   // --- Pemeriksaan sebelum build ----------------------------------------
 
@@ -152,14 +153,27 @@ try {
   if (tagExists) {
     die(
       `rilis ${tag} sudah ada di GitHub.`,
-      "Menimpanya akan mengganti paket yang mungkin sudah diunduh pengguna.",
+      isRebuild
+        ? `Versi di package.json sudah ${version} dan rilisnya sudah ` +
+          "terbit — naikkan ke versi berikutnya."
+        : "Menimpanya akan mengganti paket yang mungkin sudah diunduh pengguna.",
     );
   }
   ok(`tag ${tag} belum dipakai`);
 
+  // Membangun ulang nomor versi yang sama itu sah selama rilisnya belum
+  // terbit — dan justru perlu: kalau build sebelumnya menghasilkan artefak
+  // yang salah, atau kodenya berubah setelah versinya terlanjur di-commit,
+  // memaksa naik nomor berarti membakar versi hanya karena urutan kerja.
+  // Yang tidak boleh adalah menimpa versi yang sudah beredar, dan itu
+  // dijaga oleh pemeriksaan tag di atas.
+  if (isRebuild) {
+    ok(`membangun ulang ${version} (belum terbit, jadi nomornya masih bebas)`);
+  }
+
   // --- Naikkan versi -----------------------------------------------------
 
-  step(`Menaikkan versi ke ${version}`);
+  step(isRebuild ? `Menyegarkan berkas versi (${version})` : `Menaikkan versi ke ${version}`);
 
   // Disimpan sebelum diubah supaya kegagalan apa pun setelah ini bisa
   // dikembalikan. Tanpa ini, kegagalan di tengah jalan meninggalkan working
