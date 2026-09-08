@@ -15,6 +15,7 @@
   import { t } from "../stores/i18n.svelte";
   import { invoke } from "@tauri-apps/api/core";
   import UniversalSearch from "./UniversalSearch.svelte";
+  import DateTimeField from "./DateTimeField.svelte";
   import TimePresetChips from "./TimePresetChips.svelte";
   import DescriptionEditor from "./DescriptionEditor.svelte";
   import type { RecentIssue } from "../stores/recentIssuesStore";
@@ -983,20 +984,11 @@
   <!-- Date started -->
   <div class="section">
     <label for={startedDateId} class="field-label">{t("log.dateStarted")}</label>
-    <div class="datetime-row">
-      <input
-        id={startedDateId}
-        type="date"
-        class="datetime-input datetime-date"
-        bind:value={startedDate}
-      />
-      <input
-        type="time"
-        class="datetime-input datetime-time"
-        aria-label={t("log.startTime")}
-        bind:value={startedTime}
-      />
-    </div>
+    <DateTimeField
+      id={startedDateId}
+      bind:date={startedDate}
+      bind:time={startedTime}
+    />
   </div>
 
   <!-- Description -->
@@ -1510,49 +1502,11 @@
     background: rgb(var(--fg-rgb) / 0.08);
   }
 
-  /* --- Date started (date + time) --- */
-  .datetime-row {
-    display: flex;
-    gap: 0.5rem;
-  }
 
-  .datetime-input {
-    padding: 0.625rem 0.75rem;
-    border-radius: 0.5rem;
-    border: 1px solid rgb(var(--fg-rgb) / 0.12);
-    background: rgb(var(--fg-rgb) / 0.06);
-    color: var(--text-primary);
-    font-size: 0.875rem;
-    font-family: inherit;
-    /* Render the native date/time picker chrome in dark mode. */
-    color-scheme: dark;
-    transition:
-      border-color 0.2s ease-out,
-      box-shadow 0.15s ease-out,
-      background 0.2s ease-out;
-    outline: none;
-  }
 
-  .datetime-date {
-    flex: 1 1 60%;
-    min-width: 0;
-  }
 
-  .datetime-time {
-    flex: 1 1 40%;
-    min-width: 0;
-  }
 
-  .datetime-input:hover {
-    background: rgb(var(--fg-rgb) / 0.08);
-    border-color: rgb(var(--fg-rgb) / 0.2);
-  }
 
-  .datetime-input:focus-visible {
-    border-color: rgba(99, 102, 241, 0.6);
-    box-shadow: var(--focus-ring);
-    background: rgb(var(--fg-rgb) / 0.08);
-  }
 
   .hint {
     font-size: 0.6875rem;
@@ -1718,8 +1672,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .submit-btn,
-    .duration-input,
-    .datetime-input {
+    .duration-input {
       transition: none;
     }
     .status-success {

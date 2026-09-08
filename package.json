@@ -1,6 +1,6 @@
 {
   "name": "jira-logwork",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Aplikasi desktop untuk mencatat worklog Jira lewat kalender, dengan penjadwalan draf dan auto-update.",
   "author": "wembyjuniarrochman",
   "license": "UNLICENSED",
@@ -23,6 +23,7 @@
     "release": "node scripts/release.mjs"
   },
   "dependencies": {
+    "@internationalized/date": "^3.12.4",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-notification": "^2.3.3",
@@ -30,6 +31,7 @@
     "@tauri-apps/plugin-shell": "^2.3.5",
     "@tauri-apps/plugin-store": "^2.4.3",
     "@tauri-apps/plugin-updater": "^2.11.0",
+    "bits-ui": "^2.19.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.40.0",
