@@ -192,10 +192,16 @@
    * The Erajaya logo sits between the BackgroundPaths (z-index: 0) and
    * the login content (z-index: 1). It's compact and anchored to the top
    * of the viewport so it reads as a header/brand mark rather than a
-   * full-page wash. */
+   * full-page wash.
+   *
+   * The anchor uses a viewport-relative `top` with a `max()` floor so the
+   * logo tracks the top of the card as the content column re-centers on
+   * shorter viewports. On Windows/WebView2 `backdrop-filter` does not
+   * paint, so a fixed `top` let the opaque card clip straight through the
+   * logo; keeping the logo above the card's top edge avoids that collision. */
   .brand-backdrop {
     position: absolute;
-    top: 2.5rem;
+    top: max(1.5rem, 6vh);
     left: 50%;
     transform: translateX(-50%);
     z-index: 0;
@@ -301,7 +307,15 @@
     justify-content: center;
     width: 100%;
     height: 100%;
+    /* Vertical scroll as a safety net: on shorter Windows viewports (a
+     * maximized window at 1080p leaves ~940px after the title bar) the
+     * logo + card stack can exceed the available height. Allowing the
+     * column to scroll keeps the Login button reachable instead of being
+     * pushed below the fold. `overflow-x: hidden` stops the animated
+     * background curves from producing a horizontal scrollbar. */
     padding: 2rem;
+    overflow-y: auto;
+    overflow-x: hidden;
   }
 
   /* Loading state */
@@ -445,6 +459,12 @@
     gap: 2rem;
     width: 100%;
     max-width: 420px;
+    /* Reserve room for the brand logo pinned near the top of the viewport
+     * so the (opaque, on Windows) card starts below it rather than clipping
+     * through it. `margin-block: auto` keeps the stack visually centered
+     * within whatever space remains. */
+    margin-block: auto;
+    padding-top: clamp(7rem, 20vh, 11rem);
     animation: fadeIn 0.4s ease-out;
   }
 
@@ -476,6 +496,40 @@
   @keyframes fadeIn {
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* --- Short-viewport adjustments --------------------------------------
+   * A maximized window on a 1080p Windows display leaves roughly 900–940px
+   * of usable height after the OS title bar. At the default sizing the
+   * brand logo + card stack is taller than that, so the card either clips
+   * the logo or pushes the Login button toward the bottom edge. These
+   * rules progressively tighten the top reservation and logo footprint so
+   * everything fits without scrolling on common Windows resolutions. */
+  @media (max-height: 900px) {
+    .brand-backdrop {
+      top: 1.25rem;
+    }
+    .brand-logo {
+      width: clamp(100px, 13vw, 150px);
+    }
+    .form-container {
+      gap: 1.5rem;
+      padding-top: clamp(6rem, 15vh, 8.5rem);
+    }
+  }
+
+  @media (max-height: 760px) {
+    .brand-logo {
+      width: clamp(88px, 11vw, 120px);
+    }
+    .form-container {
+      gap: 1.25rem;
+      padding-top: clamp(5rem, 12vh, 7rem);
+    }
+    /* Reclaim vertical space inside the card on the tightest layouts. */
+    :global(.credential-form-wrapper) {
+      padding: 1.75rem;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
