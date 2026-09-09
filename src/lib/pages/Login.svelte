@@ -22,6 +22,19 @@
 
   let { credentials, isLoadingCredentials, hasStoredCredentials, onAuthenticated }: Props = $props();
 
+  // Penyesuaian tata letak khusus Windows.
+  //
+  // Di WebView2 (Windows) `backdrop-filter` tidak dipaint, sehingga kartu
+  // login menjadi solid dan menimpa logo Erajaya. Perbaikan tata letak
+  // (memberi ruang di atas kartu + aturan responsif tinggi layar) hanya
+  // relevan di sana; macOS memakai blur dan tampil benar dengan tata letak
+  // aslinya. Atribut `data-os="windows"` dipasang di root agar seluruh
+  // aturan penyesuaian ter-scope ke Windows saja dan macOS tidak ikut
+  // berubah. Deteksi memakai userAgent — konsisten dengan pengecekan
+  // platform lain di aplikasi ini dan tersedia sinkron di dalam WebView.
+  const isWindows =
+    typeof navigator !== "undefined" && /Windows|Win32|Win64/.test(navigator.userAgent);
+
   // Local auth state
   let isAuthenticating = $state(false);
   let error = $state<AuthError | null>(null);
@@ -92,7 +105,7 @@
 <!-- `data-force-theme="dark"` mengunci layar ini ke palet gelap apa pun tema
      yang dipilih user: logo, gradien, dan kurva animasinya dirancang untuk
      latar gelap. Tema baru berlaku setelah masuk ke workspace. -->
-<div class="login-page" data-force-theme="dark">
+<div class="login-page" data-force-theme="dark" data-os={isWindows ? "windows" : undefined}>
   <BackgroundPaths exiting={isAuthenticating || showSuccess} />
 
   <!-- Brand backdrop: large, dim Erajaya logo behind the login form. The
@@ -192,16 +205,10 @@
    * The Erajaya logo sits between the BackgroundPaths (z-index: 0) and
    * the login content (z-index: 1). It's compact and anchored to the top
    * of the viewport so it reads as a header/brand mark rather than a
-   * full-page wash.
-   *
-   * The anchor uses a viewport-relative `top` with a `max()` floor so the
-   * logo tracks the top of the card as the content column re-centers on
-   * shorter viewports. On Windows/WebView2 `backdrop-filter` does not
-   * paint, so a fixed `top` let the opaque card clip straight through the
-   * logo; keeping the logo above the card's top edge avoids that collision. */
+   * full-page wash. */
   .brand-backdrop {
     position: absolute;
-    top: max(1.5rem, 6vh);
+    top: 2.5rem;
     left: 50%;
     transform: translateX(-50%);
     z-index: 0;
@@ -307,15 +314,7 @@
     justify-content: center;
     width: 100%;
     height: 100%;
-    /* Vertical scroll as a safety net: on shorter Windows viewports (a
-     * maximized window at 1080p leaves ~940px after the title bar) the
-     * logo + card stack can exceed the available height. Allowing the
-     * column to scroll keeps the Login button reachable instead of being
-     * pushed below the fold. `overflow-x: hidden` stops the animated
-     * background curves from producing a horizontal scrollbar. */
     padding: 2rem;
-    overflow-y: auto;
-    overflow-x: hidden;
   }
 
   /* Loading state */
@@ -459,12 +458,6 @@
     gap: 2rem;
     width: 100%;
     max-width: 420px;
-    /* Reserve room for the brand logo pinned near the top of the viewport
-     * so the (opaque, on Windows) card starts below it rather than clipping
-     * through it. `margin-block: auto` keeps the stack visually centered
-     * within whatever space remains. */
-    margin-block: auto;
-    padding-top: clamp(7rem, 20vh, 11rem);
     animation: fadeIn 0.4s ease-out;
   }
 
@@ -498,36 +491,54 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
-  /* --- Short-viewport adjustments --------------------------------------
-   * A maximized window on a 1080p Windows display leaves roughly 900–940px
-   * of usable height after the OS title bar. At the default sizing the
-   * brand logo + card stack is taller than that, so the card either clips
-   * the logo or pushes the Login button toward the bottom edge. These
-   * rules progressively tighten the top reservation and logo footprint so
-   * everything fits without scrolling on common Windows resolutions. */
+  /* --- Windows-only layout adjustments ---------------------------------
+   * Everything below is scoped to `[data-os="windows"]` so macOS keeps its
+   * original login layout untouched.
+   *
+   * On Windows/WebView2 `backdrop-filter` does not paint, so the login card
+   * is fully opaque and, when vertically centered, clips straight through
+   * the brand logo. These rules pin the logo relative to the viewport,
+   * reserve room above the card, and add a scroll safety net so the Login
+   * button stays reachable on shorter Windows viewports (a maximized window
+   * on a 1080p display leaves roughly 900–940px after the title bar). */
+  .login-page[data-os="windows"] .brand-backdrop {
+    top: max(1.5rem, 6vh);
+  }
+
+  .login-page[data-os="windows"] .login-content {
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .login-page[data-os="windows"] .form-container {
+    margin-block: auto;
+    padding-top: clamp(7rem, 20vh, 11rem);
+  }
+
+  /* Progressive tightening for shorter Windows viewports. */
   @media (max-height: 900px) {
-    .brand-backdrop {
+    .login-page[data-os="windows"] .brand-backdrop {
       top: 1.25rem;
     }
-    .brand-logo {
+    .login-page[data-os="windows"] .brand-logo {
       width: clamp(100px, 13vw, 150px);
     }
-    .form-container {
+    .login-page[data-os="windows"] .form-container {
       gap: 1.5rem;
       padding-top: clamp(6rem, 15vh, 8.5rem);
     }
   }
 
   @media (max-height: 760px) {
-    .brand-logo {
+    .login-page[data-os="windows"] .brand-logo {
       width: clamp(88px, 11vw, 120px);
     }
-    .form-container {
+    .login-page[data-os="windows"] .form-container {
       gap: 1.25rem;
       padding-top: clamp(5rem, 12vh, 7rem);
     }
     /* Reclaim vertical space inside the card on the tightest layouts. */
-    :global(.credential-form-wrapper) {
+    .login-page[data-os="windows"] :global(.credential-form-wrapper) {
       padding: 1.75rem;
     }
   }

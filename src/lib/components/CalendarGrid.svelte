@@ -1284,7 +1284,16 @@
 
   // Max worklog rows shown per Month cell before collapsing into "+N more",
   // so the whole month grid fits one screen without page scrolling.
-  const MONTH_CELL_MAX = 3;
+  //
+  // Windows menampilkan 2 baris, bukan 3. Di WebView2, sel bulanan lebih
+  // pendek (title bar OS memakan `100vh`, konten atas ter-render lebih
+  // tinggi), sehingga entri ke-3 terpotong. Membatasi ke 2 membuat entri
+  // yang tampil selalu utuh — sel tetap seukuran macOS, hanya jumlah baris
+  // yang dikurangi, dan sisanya diringkas ke indikator "+N more". macOS &
+  // platform lain tetap 3.
+  const isWindows =
+    typeof navigator !== "undefined" && /Windows|Win32|Win64/.test(navigator.userAgent);
+  const MONTH_CELL_MAX = isWindows ? 2 : 3;
 
   // Skeleton sizes per mode.
   const MONTH_SKELETON = Array.from({ length: 42 }, (_, i) => i);
