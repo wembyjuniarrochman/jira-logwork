@@ -1,19 +1,19 @@
 {
-  "version": "1.0.5",
-  "notes": "Kalender Windows: 2 entri per sel tampil utuh dan bar total disembunyikan",
-  "pub_date": "2026-09-09T09:15:04.398Z",
+  "version": "1.0.6",
+  "notes": "Sinkronisasi worklog lebih andal, onboarding pengguna baru, update aplikasi terverifikasi, perbaikan kalender dan hari libur, lokalisasi tanggal, tema gelap default, serta indikator kekurangan jam harian.",
+  "pub_date": "2026-09-09T19:42:43.588Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTjMyRUJHdGJuYWtXR3ZNL2tBVFAxTHd0bnl6VzZRVHVDQXd0aHl3TEFvY1I4K3l5NmJSK1M5RndQbGViR1B6eWVQNnpmemlpVVhPUUE0TlAwZHlPNGxjdDZMN1IwR0FrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4OTQ1MTExCWZpbGU6SklSQSBMb2d3b3JrXzEuMC41X3g2NC1zZXR1cC5leGUKNUZjQWhzYmtkTFVsRTlPTFdZUGNDdDRGdGloa0pCaFlsKy8vQ2tKRkxkQWRIb1h1RU9jT1p2TWZlUmtYYnMyQTFGOFBRMGxKbWFBUTlJbHVuYlhJRGc9PQo=",
-      "url": "https://github.com/wembyjuniarrochman/jira-logwork/releases/download/v1.0.5/JIRA.Logwork_1.0.5_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTjMyRUJHdGJuYXNHVHdoOWxxelNPZDVmUjh0akY3VE1EcEsrRXgxZUpYbVpmeUJFQ2QrS1cvcnpVamlKcllFZDR5MVdBTVhPUzkxTnRhMERidm9lamRZMXVTUjRXcWdBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4OTgxNDYyCWZpbGU6SklSQSBMb2d3b3JrXzEuMC42X3g2NC1zZXR1cC5leGUKaVlaV2w4R2tGdkFka29tN1NMTks3NnlqZUNjalZOK25wWkdoOU80ODRyTzBHNFlMR2lIRVc5LzcxamQwdWxLNDBZU09oeHlzLzRtY20yNzVTbkJhQVE9PQo=",
+      "url": "https://github.com/wembyjuniarrochman/jira-logwork/releases/download/v1.0.6/JIRA.Logwork_1.0.6_x64-setup.exe"
     },
     "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTjMyRUJHdGJuYWl4RWNidHVucDlDU09SSFF5OU5GTHpLVVZpSmoyV1JrZU5IaDduS2ZGazJ5WXlFeUE1Q1c4SFM1cHdBOGN4ajFqSERwQlBYQ3UvanpHY1dTOWlBNVFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4OTQ1MzAzCWZpbGU6SklSQSBMb2d3b3JrLmFwcC50YXIuZ3oKTjNhczBQVXAvZFNDYlNGSUVBdllsbWhxRksycmVkZ1NnVHFYaTgvR0JXRzNZUlVMRy81SStTVTNiVW9UMmYyRmhaalUrcEY5WmhmeENkckFmK3UyRFE9PQo=",
-      "url": "https://github.com/wembyjuniarrochman/jira-logwork/releases/download/v1.0.5/JIRA.Logwork.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTjMyRUJHdGJuYXRvQ1Q2bU8yLzlCVGJPN1d4TFNtK05OU2FDenJQVTdVUlRzZFhmaEpIblpyY1RmWnU5KzE4bmZ4S2FjeEEySDdXYkl6VmtCUlpwMWUwWEJtK2ZmK3cwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4OTgyOTYzCWZpbGU6SklSQSBMb2d3b3JrLmFwcC50YXIuZ3oKR3ZPWjRyYTRGRnV1Yk04eWcxUHhUVWM0NnRrcU1pUnRCZFNkZTBIYk9JdGFEWGhlTDlRQm9BMk9IVWk0Ri92ZlM1d002QzZ3T2RPS0k0OVZWRHdzRFE9PQo=",
+      "url": "https://github.com/wembyjuniarrochman/jira-logwork/releases/download/v1.0.6/JIRA.Logwork.app.tar.gz"
     },
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTjMyRUJHdGJuYWl4RWNidHVucDlDU09SSFF5OU5GTHpLVVZpSmoyV1JrZU5IaDduS2ZGazJ5WXlFeUE1Q1c4SFM1cHdBOGN4ajFqSERwQlBYQ3UvanpHY1dTOWlBNVFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4OTQ1MzAzCWZpbGU6SklSQSBMb2d3b3JrLmFwcC50YXIuZ3oKTjNhczBQVXAvZFNDYlNGSUVBdllsbWhxRksycmVkZ1NnVHFYaTgvR0JXRzNZUlVMRy81SStTVTNiVW9UMmYyRmhaalUrcEY5WmhmeENkckFmK3UyRFE9PQo=",
-      "url": "https://github.com/wembyjuniarrochman/jira-logwork/releases/download/v1.0.5/JIRA.Logwork.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTjMyRUJHdGJuYXRvQ1Q2bU8yLzlCVGJPN1d4TFNtK05OU2FDenJQVTdVUlRzZFhmaEpIblpyY1RmWnU5KzE4bmZ4S2FjeEEySDdXYkl6VmtCUlpwMWUwWEJtK2ZmK3cwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4OTgyOTYzCWZpbGU6SklSQSBMb2d3b3JrLmFwcC50YXIuZ3oKR3ZPWjRyYTRGRnV1Yk04eWcxUHhUVWM0NnRrcU1pUnRCZFNkZTBIYk9JdGFEWGhlTDlRQm9BMk9IVWk0Ri92ZlM1d002QzZ3T2RPS0k0OVZWRHdzRFE9PQo=",
+      "url": "https://github.com/wembyjuniarrochman/jira-logwork/releases/download/v1.0.6/JIRA.Logwork.app.tar.gz"
     }
   }
 }
