@@ -1,6 +1,6 @@
 {
   "name": "jira-logwork",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Aplikasi desktop untuk mencatat worklog Jira lewat kalender, dengan penjadwalan draf dan auto-update.",
   "author": "wembyjuniarrochman",
   "license": "UNLICENSED",
