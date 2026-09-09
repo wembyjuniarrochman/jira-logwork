@@ -1,19 +1,19 @@
 {
-  "version": "1.0.3",
-  "notes": "Perbaikan tampilan halaman login pada Windows",
-  "pub_date": "2026-09-09T07:48:51.680Z",
+  "version": "1.0.4",
+  "notes": "Penyesuaian tampilan Windows: halaman login dan kalender bulanan",
+  "pub_date": "2026-09-09T08:22:14.644Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTjMyRUJHdGJuYW1MNFBvaUJwdWgwR0E1V1JqTWw4OGhHN1ZLamwrT0I3YklneURHTHJ0N2ZjMmZ4VVZQVjd4YVF2ZWF6eTVVdTlobkYrakR3NEpDR3JLWmNOOStBY2dVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4OTM5OTI0CWZpbGU6SklSQSBMb2d3b3JrXzEuMC4zX3g2NC1zZXR1cC5leGUKS1NudkR3MVA0WTVSa2VlOHFzVzFtNytWVEY2aVIza3dyM2hHN0NsRnYrNDV4T1crWVhPOTdiMlkvSW1VWW4rZzJBQ2M2OEFyRDgxckR1OU1tSVJXQXc9PQo=",
-      "url": "https://github.com/wembyjuniarrochman/jira-logwork/releases/download/v1.0.3/JIRA.Logwork_1.0.3_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTjMyRUJHdGJuYWszNTN1ODJXOXdXTWQ2MVZoMDlFVXdjR1FQQ0RFWnpCY0lzSjRCbHI1QXFsNUowYUVnUE5VYnhCWXM1SUNlc2NuR1A0eG9QZXlqb21lL3pCYjJHK1F3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4OTQxOTM5CWZpbGU6SklSQSBMb2d3b3JrXzEuMC40X3g2NC1zZXR1cC5leGUKajNtMnpub2duZVVwd0xSZEIyQ05zelM3Zk43RFdRZXRwazRQc0RzelZ0aGNjcFA1ZXh1TW1ZN0ZtWEJlWjBycUgxMVpxTkZ3QWZ1U0lXbG91MmNMQXc9PQo=",
+      "url": "https://github.com/wembyjuniarrochman/jira-logwork/releases/download/v1.0.4/JIRA.Logwork_1.0.4_x64-setup.exe"
     },
     "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTjMyRUJHdGJuYWtrQzlvaHRkcHhJczFRS0lTaXZrbzlzN2MwWU0wRVJYU1lySWxVeWFVVEFBM0MzOEdxU29rbkFPOEF5ZEEzakk1TjVNcXdVMTM3OFFiRUwxNlhpYndFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4OTQwMTMxCWZpbGU6SklSQSBMb2d3b3JrLmFwcC50YXIuZ3oKYzNqdWUrbTNlYU9VUmttSGtacHQvblNSNjlvejhzUy9yQTZKQm9NZzk1RmVjNCtUSXdMeVNETUw5anV5WUlyUWNOUEM5OVhJeVZxWFNDZEJxU0hmRHc9PQo=",
-      "url": "https://github.com/wembyjuniarrochman/jira-logwork/releases/download/v1.0.3/JIRA.Logwork.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTjMyRUJHdGJuYWdYRDkraXpDN1BLUTg4L3RUUlJyZ0dMTXJYcEtkbC9uQ3NhNUJVSURycVF1Z2JwbGtlalhPM1NjWi9zYTMzWmxFWUdZVmROVlBFS0VJUXA0RFR5R0FJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4OTQyMTM0CWZpbGU6SklSQSBMb2d3b3JrLmFwcC50YXIuZ3oKM1M3cXNHbzdmWXhGOVRELy8rYlhRVW40NVhrR1krdjZlZHNWN1ZMQTdCRHIwS0tra2NvckN1VGFNbUloTUVURkM1VGpLalN1LzJ6ZmFUUzh0S1M3QUE9PQo=",
+      "url": "https://github.com/wembyjuniarrochman/jira-logwork/releases/download/v1.0.4/JIRA.Logwork.app.tar.gz"
     },
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTjMyRUJHdGJuYWtrQzlvaHRkcHhJczFRS0lTaXZrbzlzN2MwWU0wRVJYU1lySWxVeWFVVEFBM0MzOEdxU29rbkFPOEF5ZEEzakk1TjVNcXdVMTM3OFFiRUwxNlhpYndFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4OTQwMTMxCWZpbGU6SklSQSBMb2d3b3JrLmFwcC50YXIuZ3oKYzNqdWUrbTNlYU9VUmttSGtacHQvblNSNjlvejhzUy9yQTZKQm9NZzk1RmVjNCtUSXdMeVNETUw5anV5WUlyUWNOUEM5OVhJeVZxWFNDZEJxU0hmRHc9PQo=",
-      "url": "https://github.com/wembyjuniarrochman/jira-logwork/releases/download/v1.0.3/JIRA.Logwork.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTjMyRUJHdGJuYWdYRDkraXpDN1BLUTg4L3RUUlJyZ0dMTXJYcEtkbC9uQ3NhNUJVSURycVF1Z2JwbGtlalhPM1NjWi9zYTMzWmxFWUdZVmROVlBFS0VJUXA0RFR5R0FJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4OTQyMTM0CWZpbGU6SklSQSBMb2d3b3JrLmFwcC50YXIuZ3oKM1M3cXNHbzdmWXhGOVRELy8rYlhRVW40NVhrR1krdjZlZHNWN1ZMQTdCRHIwS0tra2NvckN1VGFNbUloTUVURkM1VGpLalN1LzJ6ZmFUUzh0S1M3QUE9PQo=",
+      "url": "https://github.com/wembyjuniarrochman/jira-logwork/releases/download/v1.0.4/JIRA.Logwork.app.tar.gz"
     }
   }
 }
