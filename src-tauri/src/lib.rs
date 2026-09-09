@@ -48,6 +48,43 @@ fn http_client() -> &'static Client {
     })
 }
 
+/// Persist before installation: Windows may exit before JavaScript resumes.
+#[tauri::command]
+fn prepare_update_restart(app: tauri::AppHandle, version: String) -> Result<(), String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join("update-restart-version"), version).map_err(|e| e.to_string())
+}
+
+fn take_update_restart(app: &tauri::AppHandle) -> bool {
+    let Ok(dir) = app.path().app_data_dir() else { return false };
+    let marker = dir.join("update-restart-version");
+    let Ok(version) = std::fs::read_to_string(&marker) else { return false };
+    if version.trim() != app.package_info().version.to_string() { return false; }
+    // Leave a one-shot success receipt for the webview. This is written only
+    // after the restarted binary reports the requested version, so the UI
+    // does not claim success merely because the installer returned `Ok`.
+    let _ = std::fs::write(
+        dir.join("update-installed-version"),
+        app.package_info().version.to_string(),
+    );
+    let _ = std::fs::remove_file(marker);
+    true
+}
+
+#[tauri::command]
+fn take_update_success(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let marker = dir.join("update-installed-version");
+    let version = match std::fs::read_to_string(&marker) {
+        Ok(value) => value.trim().to_string(),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err.to_string()),
+    };
+    std::fs::remove_file(marker).map_err(|e| e.to_string())?;
+    Ok(Some(version))
+}
+
 // --- Timer State (shared between tray menu and windows) ---
 
 /// Extract (x, y, width, height) from a Tauri Rect regardless of Physical/Logical variant.
@@ -339,7 +376,14 @@ async fn update_worklog(
 async fn get_worklogs(base_url: String, email: String, api_token: String, is_cloud: bool, issue_key: String) -> Result<Vec<Worklog>, String> {
     let config = JiraConfig { base_url, email, api_token, is_cloud };
     let client = http_client().clone();
-    let resp = client.get(&format!("{}/issue/{}/worklog", config.api_base(), issue_key))
+    // Include enough history for offline retry deduplication. Without an
+    // explicit maxResults Jira can return only the first page and hide the
+    // newly accepted worklog we are checking for.
+    let resp = client.get(&format!(
+        "{}/issue/{}/worklog?maxResults=5000",
+        config.api_base(),
+        issue_key,
+    ))
         .header("Authorization", config.auth_header())
         .header("Content-Type", "application/json")
         .send().await.map_err(|e| e.to_string())?;
@@ -992,7 +1036,15 @@ pub fn run() {
 
             // When launched at login (autostart passes `--minimized`), start
             // hidden in the tray instead of popping the window open.
-            if std::env::args().any(|a| a == "--minimized") {
+            // An updater restart must open the new version even when the
+            // original process was launched by autostart with --minimized.
+            if take_update_restart(app.handle()) {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.unminimize();
+                    let _ = w.set_focus();
+                }
+            } else if std::env::args().any(|a| a == "--minimized") {
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.hide();
                 }
@@ -1019,7 +1071,7 @@ pub fn run() {
             create_issue, get_assignable_users, get_create_meta,
             update_worklog, delete_worklog,
             get_timer_state, start_timer, stop_timer, reset_timer, open_quicklog,
-            update_tray_tooltip
+            update_tray_tooltip, prepare_update_restart, take_update_success
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

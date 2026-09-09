@@ -30,6 +30,29 @@ export interface WorklogDay {
   entries: WorklogEntry[];
 }
 
+export interface WorklogFingerprint {
+  issueKey: string;
+  hours: number;
+  started: string;
+}
+
+/** Match a locally submitted worklog with Jira's response at minute
+ * precision. Jira may normalize milliseconds while preserving its start
+ * minute and duration. */
+export function containsWorklog(
+  worklogsByDate: Record<string, WorklogDay>,
+  expected: WorklogFingerprint,
+): boolean {
+  const date = expected.started.slice(0, 10);
+  const expectedSeconds = Math.round(expected.hours * 3600);
+  const expectedMinute = expected.started.slice(0, 16);
+  return (worklogsByDate[date]?.entries ?? []).some((entry) =>
+    entry.issueKey === expected.issueKey &&
+    Math.round(entry.timeSpentSeconds ?? entry.hours * 3600) === expectedSeconds &&
+    (entry.started?.slice(0, 16) ?? "") === expectedMinute
+  );
+}
+
 export function groupWorklogsByDate(
   worklogs: any[],
   issueKey: string,

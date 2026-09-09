@@ -39,7 +39,7 @@
     type RecentIssue,
   } from "../stores/recentIssuesStore";
   import type { WorklogDay } from "../stores/heatmapStore";
-  import type { WorklogEntry } from "../stores/worklogStore";
+  import { containsWorklog, type WorklogEntry } from "../stores/worklogStore";
   import {
     loadWorkspaceSettings,
     DEFAULT_WORKSPACE_SETTINGS,
@@ -383,6 +383,7 @@
   function applyPendingDrafts(
     base: Record<string, WorklogDay>,
     drafts: Record<string, PendingDraft>,
+    pending = true,
   ): Record<string, WorklogDay> {
     const list = Object.values(drafts);
     if (list.length === 0) return base;
@@ -391,14 +392,14 @@
     for (const draft of list) {
       const date = draft.started.slice(0, 10);
       const entry: WorklogEntry = {
-        id: draft.draftId,
+        id: pending ? draft.draftId : undefined,
         issueKey: draft.issueKey,
         summary: draft.summary,
         hours: draft.hours,
         timeSpentSeconds: Math.round(draft.hours * 3600),
         description: draft.description,
         started: draft.started,
-        pending: true,
+        pending,
       };
       const day = next[date] ?? { totalHours: 0, entries: [] };
       const entries = [...day.entries, entry];
@@ -413,6 +414,9 @@
     return next;
   }
 
+  /** Keep successful auto-schedule submissions visible until Jira returns
+   * them in a fetch response. Jira can briefly return stale worklog data
+   * immediately after accepting an add request. */
   /**
    * Commit the whole staging area to Jira: staged calendar edits via
    * `update_worklog`, dan draf jadwal otomatis via `add_worklog`. Setelah
@@ -480,6 +484,7 @@
     }
     // Draf jadwal otomatis → add_worklog.
     const failedDrafts: Record<string, PendingDraft> = {};
+    const succeededDrafts: Record<string, PendingDraft> = {};
     let processedChanged = false;
     for (const draft of drafts) {
       const date = draft.started.slice(0, 10);
@@ -495,6 +500,7 @@
           comment: draft.description ?? "",
         });
         autoScheduleProcessed.add(slotKey(draft.sourceActivityId, draft.sourceDate));
+        succeededDrafts[draft.draftId] = draft;
         processedChanged = true;
         audits.push(
           makeAuditEntry({
@@ -548,6 +554,14 @@
       );
     }
 
+    if (Object.keys(succeededDrafts).length > 0) {
+      recentlySubmittedDrafts = {
+        ...recentlySubmittedDrafts,
+        ...succeededDrafts,
+      };
+      scheduleConfirmationSync();
+    }
+
     pendingEdits = {};
     pendingDrafts = failedDrafts;
     submittingChanges = false;
@@ -584,6 +598,9 @@
   let pendingEdits = $state<Record<string, PendingEdit>>({});
   // Draf jadwal otomatis, keyed by draftId. Empty ⇒ nothing pending.
   let pendingDrafts = $state<Record<string, PendingDraft>>({});
+  // Successful Daily Activity drafts stay here until a Jira fetch confirms
+  // them, preventing an eventually-consistent response from hiding them.
+  let recentlySubmittedDrafts = $state<Record<string, PendingDraft>>({});
   let submittingChanges = $state<boolean>(false);
   let submitChangesError = $state<string | null>(null);
 
@@ -591,7 +608,14 @@
   // edits applied, plus draft entries layered on top. Recomputes when any
   // input changes.
   let worklogsByDate = $derived(
-    applyPendingDrafts(applyPendingEdits(serverWorklogsByDate, pendingEdits), pendingDrafts),
+    applyPendingDrafts(
+      applyPendingDrafts(
+        applyPendingEdits(serverWorklogsByDate, pendingEdits),
+        pendingDrafts,
+      ),
+      recentlySubmittedDrafts,
+      false,
+    ),
   );
   let editCount = $derived(Object.keys(pendingEdits).length);
   let draftCount = $derived(Object.keys(pendingDrafts).length);
@@ -607,6 +631,79 @@
 
   let worklogsLoading = $state<boolean>(true);
   let worklogsError = $state<string | null>(null);
+  let isSyncing = $state(false);
+  let syncSucceeded = $state(false);
+  let lastSyncedAt = $state<number | null>(null);
+  let worklogRequestId = 0;
+  let confirmationTimers: number[] = [];
+
+  $effect(() => {
+    if (!syncSucceeded) return;
+    const timeout = window.setTimeout(() => { syncSucceeded = false; }, 4000);
+    return () => window.clearTimeout(timeout);
+  });
+
+  $effect(() => () => {
+    for (const timer of confirmationTimers) window.clearTimeout(timer);
+  });
+
+  async function handleSync(): Promise<void> {
+    if (isSyncing || !credentialsComplete) return;
+    isSyncing = true;
+    syncSucceeded = false;
+    try {
+      let queueFailed = 0;
+      try {
+        queueFailed = (await syncPendingWorklogs()).failed;
+      } catch {
+        queueFailed = 1;
+      }
+      const fetched = await fetchWorklogs(true);
+      syncSucceeded = fetched && queueFailed === 0;
+      if (queueFailed > 0) {
+        worklogsError = t("header.syncQueueFailed", { n: queueFailed });
+      }
+    } finally {
+      isSyncing = false;
+    }
+  }
+
+  function scheduleConfirmationSync(): void {
+    for (const timer of confirmationTimers) window.clearTimeout(timer);
+    confirmationTimers = [1500, 4000, 9000].map((delay) =>
+      window.setTimeout(() => {
+        if (Object.keys(recentlySubmittedDrafts).length > 0) {
+          void fetchWorklogs(true);
+        }
+      }, delay),
+    );
+  }
+
+  function keepSubmissionVisible(e: {
+    issueKey: string;
+    summary: string;
+    hours: number;
+    date: string;
+    description: string;
+    started?: string;
+    queueId?: string;
+  }): void {
+    const localId = e.queueId ?? newDraftId();
+    recentlySubmittedDrafts = {
+      ...recentlySubmittedDrafts,
+      [localId]: {
+        draftId: localId,
+        sourceActivityId: localId,
+        sourceDate: e.date,
+        issueKey: e.issueKey,
+        summary: e.summary,
+        hours: e.hours,
+        description: e.description,
+        started: e.started || jiraStarted(e.date, workspaceSettings.workdayStart),
+      },
+    };
+    scheduleConfirmationSync();
+  }
 
   let workspaceSettings = $state<WorkspaceSettings>({
     ...DEFAULT_WORKSPACE_SETTINGS,
@@ -852,14 +949,16 @@
    *      both UI state and cache when it returns.
    *
    * `force` (true on user-driven retries / submits / sync ticks) bypasses
-   * the freshness window and always hits the network.
+   * the freshness window and always hits the network. Returns false on
+   * failure or when a newer request supersedes this one.
    */
-  async function fetchWorklogs(force: boolean = false): Promise<void> {
+  async function fetchWorklogs(force: boolean = false): Promise<boolean> {
+    const requestId = ++worklogRequestId;
     if (!isCredentialComplete(credentials)) {
       serverWorklogsByDate = {};
       worklogsLoading = false;
       worklogsError = null;
-      return;
+      return false;
     }
 
     const cacheArgs = {
@@ -883,6 +982,7 @@
         cacheArgs.startDate,
         cacheArgs.endDate,
       );
+      if (requestId !== worklogRequestId) return false;
       if (hit) {
         if (!hasVisibleData) {
           serverWorklogsByDate = hit.entry.worklogsByDate;
@@ -891,11 +991,13 @@
           servedFromCache = true;
         }
         // Step 2: skip the network when cache is fresh and no force.
-        if (hit.fresh && !force) return;
+        if (hit.fresh && !force) return true;
       }
     } catch {
       /* cache failures fall through to the network */
     }
+
+    if (requestId !== worklogRequestId) return false;
 
     // -- Step 3: network revalidation ------------------------------------
     // When we have nothing on screen yet, show the spinner. When something
@@ -915,6 +1017,7 @@
         startDate: fetchStartDate,
         endDate: fetchEndDate,
       });
+      if (requestId !== worklogRequestId) return false;
       const data = JSON.parse(raw);
       const issues = Array.isArray(data?.issues) ? data.issues : [];
 
@@ -963,6 +1066,13 @@
           });
         }
       }
+      if (Object.keys(recentlySubmittedDrafts).length > 0) {
+        recentlySubmittedDrafts = Object.fromEntries(
+          Object.entries(recentlySubmittedDrafts).filter(
+            ([, draft]) => !containsWorklog(combined, draft),
+          ),
+        );
+      }
       // Respons ini hanya berwenang atas rentang yang diminta. Tanggal di
       // luar itu dipertahankan apa adanya — kalau tidak, worklog yang
       // dipindahkan ke luar jendela akan lenyap begitu reconcile mendarat,
@@ -973,6 +1083,7 @@
       }
       const merged = { ...outside, ...combined };
       serverWorklogsByDate = merged;
+      lastSyncedAt = Date.now();
       // Persist in the background; failures are swallowed inside writeCache.
       void writeCache(
         cacheArgs.email,
@@ -981,11 +1092,12 @@
         cacheArgs.endDate,
         merged,
       );
+      return true;
     } catch (err) {
       // If we already painted from cache, keep showing it and surface a
       // non-blocking error. Otherwise, replace the heatmap with the error
       // state so the user can retry.
-      if (!servedFromCache) {
+      if (requestId === worklogRequestId) {
         worklogsError =
           err instanceof Error
             ? err.message
@@ -993,8 +1105,9 @@
               ? err
               : "Could not load worklogs.";
       }
+      return false;
     } finally {
-      worklogsLoading = false;
+      if (requestId === worklogRequestId) worklogsLoading = false;
     }
   }
 
@@ -1100,13 +1213,14 @@
   $effect(() => {
     if (!credentialsComplete) return;
     const id = window.setInterval(async () => {
+      if (isSyncing) return;
       let synced = 0;
       try {
         ({ synced } = await syncPendingWorklogs());
       } catch {
         /* ignore — still revalidate below */
       }
-      void fetchWorklogs(synced > 0);
+      void fetchWorklogs(synced > 0 || Object.keys(recentlySubmittedDrafts).length > 0);
     }, 60000);
     return () => window.clearInterval(id);
   });
@@ -1208,7 +1322,7 @@
             summary: e.summary,
             hours: e.hours,
             description: e.description,
-            started: e.started || jiraStarted(e.date),
+            started: e.started || jiraStarted(e.date, workspaceSettings.workdayStart),
           },
         };
       }
@@ -1217,28 +1331,39 @@
       return;
     }
 
-    // 1. Optimistic Update: Add to local state immediately
+    const wasEditing = editingWorklog;
+
+    // 1. Optimistic Update: additions remain layered over server data until
+    // Jira confirms them. Edits already have a server id, so update the
+    // local server view directly while the reconcile runs.
     const entry: WorklogEntry = {
+      id: wasEditing?.id,
       issueKey: e.issueKey,
       summary: e.summary,
       hours: e.hours,
       description: e.description,
-      started: e.started || jiraStarted(e.date),
+      started: e.started || jiraStarted(e.date, workspaceSettings.workdayStart),
     };
 
-    const nextWorklogs = { ...serverWorklogsByDate };
-    if (!nextWorklogs[e.date]) {
-      nextWorklogs[e.date] = { totalHours: 0, entries: [] };
+    if (wasEditing) {
+      const nextWorklogs: Record<string, WorklogDay> = {};
+      for (const [date, day] of Object.entries(serverWorklogsByDate)) {
+        const entries = day.entries.filter((en) => en.id !== wasEditing.id);
+        nextWorklogs[date] = {
+          totalHours: entries.reduce((sum, en) => sum + en.hours, 0),
+          entries,
+        };
+      }
+      const day = nextWorklogs[e.date] ?? { totalHours: 0, entries: [] };
+      const entries = [...day.entries, entry];
+      nextWorklogs[e.date] = {
+        totalHours: entries.reduce((sum, en) => sum + en.hours, 0),
+        entries,
+      };
+      serverWorklogsByDate = nextWorklogs;
+    } else {
+      keepSubmissionVisible(e);
     }
-    // If we're updating (editingWorklog is set), replace the old one
-    if (editingWorklog && e.date === selectedDate) {
-      nextWorklogs[e.date].entries = nextWorklogs[e.date].entries.filter(en => en.id !== editingWorklog?.id);
-    }
-
-    nextWorklogs[e.date].entries.push(entry);
-    // Re-calculate total hours for that day
-    nextWorklogs[e.date].totalHours = nextWorklogs[e.date].entries.reduce((sum, en) => sum + en.hours, 0);
-    serverWorklogsByDate = nextWorklogs;
 
     // 2. Recent Issues Update
     const nextRecent = upsertRecentIssue(recentIssues, {
@@ -1253,7 +1378,7 @@
 
     // 3. Audit trail — capture whether this was an edit before clearing state.
     recordAudit({
-      action: editingWorklog ? "edit" : "add",
+      action: wasEditing ? "edit" : "add",
       source: "manual",
       status: "success",
       issueKey: e.issueKey,
@@ -1265,7 +1390,7 @@
     quickLogOpen = false;
     editingWorklog = null;
 
-    // 5. Background Refresh: No spinner, just sync truth from Jira
+    // 5. Background refresh. New additions stay visible until confirmed.
     void fetchWorklogs(true);
   }
 
@@ -1279,9 +1404,13 @@
     summary: string;
     hours: number;
     date: string;
+    description: string;
+    started?: string;
+    queueId?: string;
     /** Diteruskan ke cache recent supaya daftarnya bisa menampilkan ikon tipe. */
     issueType?: string;
   }): Promise<void> {
+    keepSubmissionVisible(e);
     const next = upsertRecentIssue(recentIssues, {
       issueKey: e.issueKey,
       summary: e.summary,
@@ -1460,6 +1589,10 @@
       <WorkspaceHeader
         {displayName}
         {email}
+        onSync={handleSync}
+        {isSyncing}
+        {lastSyncedAt}
+        syncDisabled={!credentialsComplete || worklogsLoading}
         onOpenSettings={handleOpenSettings}
         onOpenAuditLog={handleOpenAuditLog}
         {onLogout}
@@ -1506,6 +1639,7 @@
         onAddWorklog={handleAddWorklog}
         onWorklogReschedule={handleWorklogReschedule}
         {breakConfig}
+        baseline={workspaceSettings.targetHours}
       />
     </div>
   </div>
@@ -1600,6 +1734,7 @@
         {isCloud}
         editWorklog={editingWorklog}
         {breakConfig}
+        defaultStartTime={workspaceSettings.workdayStart}
         localEdit={!!editingWorklog && isDraftId(editingWorklog.id)}
         initialStartedTime={prefillStartedTime}
         onWorklogSubmitted={handleWorklogSubmitted}
@@ -1607,6 +1742,18 @@
         onCancelEdit={handleCloseQuickLog}
       />
     </div>
+  </div>
+{/if}
+
+{#if worklogsError || syncSucceeded}
+  <div class="sync-status" class:sync-error={!!worklogsError} role="status">
+    <span>{worklogsError ? `${t("header.syncFailed")}: ${worklogsError}` : t("header.syncSuccess")}</span>
+    <button
+      type="button"
+      class="sync-dismiss"
+      aria-label={t("common.close")}
+      onclick={() => { syncSucceeded = false; worklogsError = null; }}
+    >×</button>
   </div>
 {/if}
 
@@ -1633,6 +1780,41 @@
 />
 
 <style>
+  .sync-status {
+    position: fixed;
+    top: 5.25rem;
+    right: 1.25rem;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: max-content;
+    max-width: min(26rem, calc(100vw - 2.5rem));
+    box-sizing: border-box;
+    box-shadow: 0 8px 24px rgb(var(--shadow-rgb) / 0.3);
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--glass-border);
+    border-radius: 0.75rem;
+    background: var(--app-bg);
+    color: var(--text-success);
+    font-size: 0.875rem;
+    overflow-wrap: anywhere;
+  }
+  .sync-status.sync-error { color: var(--text-danger); }
+  .sync-status span { min-width: 0; }
+  .sync-dismiss {
+    flex-shrink: 0;
+    border: 0;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: inherit;
+    font-size: 1.25rem;
+    line-height: 1;
+    padding: 0.25rem;
+    cursor: pointer;
+  }
+  .sync-dismiss:focus-visible { outline: 2px solid currentColor; }
+
   .workspace-shell {
     /* Sit above the AnimatedBackground (which is fixed at z-index: 0). */
     position: relative;

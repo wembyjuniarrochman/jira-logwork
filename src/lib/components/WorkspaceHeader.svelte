@@ -14,7 +14,7 @@
    * inside the header.
    */
 
-  import { t } from "../stores/i18n.svelte";
+  import { locale, t } from "../stores/i18n.svelte";
   import UserAvatarDropdown from "./UserAvatarDropdown.svelte";
   import LanguageToggle from "./LanguageToggle.svelte";
 
@@ -24,9 +24,13 @@
     onOpenSettings: () => void;
     onOpenAuditLog: () => void;
     onLogout: () => void;
+    onSync: () => void;
+    isSyncing?: boolean;
+    syncDisabled?: boolean;
+    lastSyncedAt?: number | null;
   }
 
-  let { displayName, email, onOpenSettings, onOpenAuditLog, onLogout }: Props =
+  let { displayName, email, onOpenSettings, onOpenAuditLog, onLogout, onSync, isSyncing = false, syncDisabled = false, lastSyncedAt = null }: Props =
     $props();
 
   // --- Current date ---
@@ -44,7 +48,18 @@
 
   // User-locale long form, e.g. "Wednesday, March 12, 2025" (R3.1).
   let displayDate = $derived(
-    currentDate.toLocaleDateString(undefined, { dateStyle: "full" })
+    currentDate.toLocaleDateString(locale(), { dateStyle: "full" })
+  );
+
+  let lastSyncLabel = $derived(
+    lastSyncedAt
+      ? t("header.lastSync", {
+          time: new Date(lastSyncedAt).toLocaleTimeString(locale(), {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        })
+      : t("header.neverSynced"),
   );
 
   function toIsoDate(d: Date): string {
@@ -86,6 +101,24 @@
 
   <!-- Right: audit log + language toggle + avatar dropdown. -->
   <div class="header-right">
+    <button
+      type="button"
+      class="header-icon-btn sync-button"
+      disabled={isSyncing || syncDisabled}
+      aria-busy={isSyncing}
+      aria-label={t(isSyncing ? "header.syncing" : "header.sync")}
+      title={t("header.syncHint")}
+      onclick={onSync}
+    >
+      <svg class:sync-spinning={isSyncing} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20 7v5h-5M4 17v-5h5" />
+        <path d="M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 17.9 17" />
+      </svg>
+      <span class="sync-copy">
+        <span>{t(isSyncing ? "header.syncing" : "header.sync")}</span>
+        <span class="last-sync">{lastSyncLabel}</span>
+      </span>
+    </button>
     <button
       type="button"
       class="header-icon-btn"
@@ -235,6 +268,37 @@
   .header-icon-btn svg {
     width: 1.25rem;
     height: 1.25rem;
+  }
+
+  .sync-button {
+    width: auto;
+    padding-inline: 0.75rem;
+    gap: 0.5rem;
+    border-color: var(--glass-border);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .sync-copy {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    line-height: 1.15;
+  }
+  .last-sync {
+    color: rgb(var(--fg-rgb) / 0.52);
+    font-size: 0.625rem;
+    font-weight: 500;
+  }
+  .sync-button:disabled { opacity: 0.55; cursor: default; }
+  .sync-spinning { animation: sync-spin 1s linear infinite; }
+  @keyframes sync-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .sync-spinning { animation: none; }
+  }
+  @media (max-width: 800px) {
+    .workspace-header { grid-template-columns: 1fr auto; }
+    .header-center { display: none; }
   }
 
   /* --- Date --- */

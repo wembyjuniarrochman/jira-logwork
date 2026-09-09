@@ -3,6 +3,7 @@
   import BackgroundPaths from "../components/BackgroundPaths.svelte";
   import CredentialForm from "../components/CredentialForm.svelte";
   import erajayaLogoUrl from "../../assets/erajaya-logo.svg";
+  import { version as appVersion } from "../../../package.json";
   import {
     authenticate,
     classifyError,
@@ -17,23 +18,10 @@
     credentials: Credentials;
     isLoadingCredentials: boolean;
     hasStoredCredentials: boolean;
-    onAuthenticated: () => void;
+    onAuthenticated: (credentials: Credentials) => void;
   }
 
   let { credentials, isLoadingCredentials, hasStoredCredentials, onAuthenticated }: Props = $props();
-
-  // Penyesuaian tata letak khusus Windows.
-  //
-  // Di WebView2 (Windows) `backdrop-filter` tidak dipaint, sehingga kartu
-  // login menjadi solid dan menimpa logo Erajaya. Perbaikan tata letak
-  // (memberi ruang di atas kartu + aturan responsif tinggi layar) hanya
-  // relevan di sana; macOS memakai blur dan tampil benar dengan tata letak
-  // aslinya. Atribut `data-os="windows"` dipasang di root agar seluruh
-  // aturan penyesuaian ter-scope ke Windows saja dan macOS tidak ikut
-  // berubah. Deteksi memakai userAgent — konsisten dengan pengecekan
-  // platform lain di aplikasi ini dan tersedia sinkron di dalam WebView.
-  const isWindows =
-    typeof navigator !== "undefined" && /Windows|Win32|Win64/.test(navigator.userAgent);
 
   // Local auth state
   let isAuthenticating = $state(false);
@@ -41,6 +29,8 @@
   let displayName = $state<string | null>(null);
   let showSuccess = $state(false);
   let rememberToken = $state(false);
+  let connectionTest = $state<"idle" | "testing" | "success" | "error">("idle");
+  let connectionMessage = $state("");
 
   // Local credential state that can be mutated on error
   let localCredentials = $state<Credentials>({ baseUrl: "", email: "", apiToken: "" });
@@ -79,7 +69,7 @@
 
       // Wait 2 seconds then signal transition
       setTimeout(() => {
-        onAuthenticated();
+        onAuthenticated(creds);
       }, 2000);
     } catch (err) {
       const classified = classifyError(err);
@@ -97,6 +87,20 @@
     }
   }
 
+  async function handleTestConnection(creds: Credentials): Promise<void> {
+    error = null;
+    connectionTest = "testing";
+    connectionMessage = "";
+    try {
+      const name = await authenticate(creds);
+      connectionTest = "success";
+      connectionMessage = t("login.connectionSuccess", { name });
+    } catch (err) {
+      connectionTest = "error";
+      connectionMessage = classifyError(err).message;
+    }
+  }
+
   function handleRememberTokenChange(value: boolean) {
     rememberToken = value;
   }
@@ -105,85 +109,105 @@
 <!-- `data-force-theme="dark"` mengunci layar ini ke palet gelap apa pun tema
      yang dipilih user: logo, gradien, dan kurva animasinya dirancang untuk
      latar gelap. Tema baru berlaku setelah masuk ke workspace. -->
-<div class="login-page" data-force-theme="dark" data-os={isWindows ? "windows" : undefined}>
+<div class="login-page" data-force-theme="dark">
   <BackgroundPaths exiting={isAuthenticating || showSuccess} />
 
-  <!-- Brand backdrop: large, dim Erajaya logo behind the login form. The
-       layer animates in slowly and floats softly so it feels alive without
-       distracting from the form. Decorative only — hidden from AT. -->
-  <div class="brand-backdrop" aria-hidden="true">
-    <img
-      class="brand-logo"
-      src={erajayaLogoUrl}
-      alt=""
-      draggable="false"
-    />
-    <div class="brand-glow"></div>
-  </div>
-
   <div class="login-content" role="main">
-    {#if isLoadingCredentials}
-      <!-- Loading state while credential store is being checked -->
-      <div class="loading-container" aria-live="polite" aria-busy="true">
-        <div class="loading-spinner-large" aria-hidden="true"></div>
-        <p class="loading-text">{t("login.loading")}</p>
-      </div>
-    {:else if showSuccess}
-      <!-- Success state: show display name for 2 seconds -->
-      <div class="success-container" role="status" aria-live="polite">
-        <div class="success-icon-wrap" aria-hidden="true">
-          <span class="success-pulse"></span>
-          <svg
-            class="success-icon"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.25"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <!-- Circle traces around the icon. pathLength normalizes the
-                 dasharray so the animation is independent of the actual
-                 SVG path length. -->
-            <path
-              class="success-icon-circle"
-              pathLength="100"
-              d="M22 11.08V12a10 10 0 1 1-5.93-9.14"
-            />
-            <!-- Checkmark draws in after the circle finishes. -->
-            <polyline
-              class="success-icon-check"
-              pathLength="100"
-              points="22 4 12 14.01 9 11.01"
-            />
-          </svg>
-        </div>
-        <h2 class="success-title">Welcome, {displayName}!</h2>
-        <p class="success-subtitle">{t("login.redirecting")}</p>
-      </div>
-    {:else}
-      <!-- Login form -->
-      <div class="form-container">
-        <div class="app-header">
-          <svg class="app-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-            <rect x="3" y="3" width="18" height="18" rx="3" />
-            <path d="M8 12h8M12 8v8" />
-          </svg>
-          <h1 class="app-title">JIRA Logwork</h1>
-        </div>
-
-        <CredentialForm
-          credentials={localCredentials}
-          isLoading={isAuthenticating}
-          {error}
-          {welcomeEmail}
-          {rememberToken}
-          onSubmit={handleSubmit}
-          onRememberTokenChange={handleRememberTokenChange}
+    <div class="login-stack">
+      <div class="brand-backdrop" aria-hidden="true">
+        <img
+          class="brand-logo"
+          src={erajayaLogoUrl}
+          alt=""
+          draggable="false"
         />
+        <div class="brand-glow"></div>
       </div>
-    {/if}
+
+      {#if isLoadingCredentials}
+        <!-- Loading state while credential store is being checked -->
+        <div class="loading-container" aria-live="polite" aria-busy="true">
+          <div class="loading-spinner-large" aria-hidden="true"></div>
+          <p class="loading-text">{t("login.loading")}</p>
+        </div>
+      {:else if showSuccess}
+        <!-- Success state: show display name for 2 seconds -->
+        <div class="success-container" role="status" aria-live="polite">
+          <div class="success-icon-wrap" aria-hidden="true">
+            <span class="success-pulse"></span>
+            <svg
+              class="success-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.25"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <!-- Circle traces around the icon. pathLength normalizes the
+                   dasharray so the animation is independent of the actual
+                   SVG path length. -->
+              <path
+                class="success-icon-circle"
+                pathLength="100"
+                d="M22 11.08V12a10 10 0 1 1-5.93-9.14"
+              />
+              <!-- Checkmark draws in after the circle finishes. -->
+              <polyline
+                class="success-icon-check"
+                pathLength="100"
+                points="22 4 12 14.01 9 11.01"
+              />
+            </svg>
+          </div>
+          <h2 class="success-title">Welcome, {displayName}!</h2>
+          <p class="success-subtitle">{t("login.redirecting")}</p>
+        </div>
+      {:else}
+        <!-- Login form -->
+        <div class="form-container">
+          <div class="app-header">
+            <svg class="app-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="3" />
+              <path d="M8 12h8M12 8v8" />
+            </svg>
+            <h1 class="app-title">JIRA Logwork</h1>
+          </div>
+
+          <CredentialForm
+            credentials={localCredentials}
+            isLoading={isAuthenticating}
+            {error}
+            {welcomeEmail}
+            {rememberToken}
+            onSubmit={handleSubmit}
+            onTestConnection={handleTestConnection}
+            connectionTestState={connectionTest}
+            onRememberTokenChange={handleRememberTokenChange}
+          />
+          <p class="app-version">{t("settings.version")} {appVersion}</p>
+        </div>
+      {/if}
+    </div>
   </div>
+
+  {#if connectionTest === "success" || connectionTest === "error"}
+    <div
+      class="connection-toast"
+      class:success={connectionTest === "success"}
+      role={connectionTest === "error" ? "alert" : "status"}
+      aria-live="polite"
+    >
+      <span class="toast-icon" aria-hidden="true">{connectionTest === "success" ? "✓" : "!"}</span>
+      <span>{connectionMessage}</span>
+      <button
+        type="button"
+        class="toast-close"
+        aria-label={t("common.close")}
+        onclick={() => { connectionTest = "idle"; connectionMessage = ""; }}
+      >×</button>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -201,16 +225,10 @@
     background: var(--app-bg);
   }
 
-  /* --- Brand backdrop ---------------------------------------------------
-   * The Erajaya logo sits between the BackgroundPaths (z-index: 0) and
-   * the login content (z-index: 1). It's compact and anchored to the top
-   * of the viewport so it reads as a header/brand mark rather than a
-   * full-page wash. */
+  /* Keep the logo in the same flow as the title and form to prevent overlap. */
   .brand-backdrop {
-    position: absolute;
-    top: 2.5rem;
-    left: 50%;
-    transform: translateX(-50%);
+    position: relative;
+    flex-shrink: 0;
     z-index: 0;
     display: flex;
     align-items: center;
@@ -220,7 +238,8 @@
 
   .brand-logo {
     width: clamp(120px, 18vw, 180px);
-    max-width: none;
+    max-width: 100%;
+    display: block;
     height: auto;
     /* Tinted to a soft indigo glow so a multi-color logo doesn't fight
      * the dark slate palette. Slightly more visible than the previous
@@ -311,10 +330,59 @@
     z-index: 1;
     display: flex;
     align-items: center;
-    justify-content: center;
+    flex-direction: column;
     width: 100%;
     height: 100%;
-    padding: 2rem;
+    padding: 2rem 1rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .login-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 1.5rem;
+    width: 100%;
+    max-width: 420px;
+    margin-block: auto;
+  }
+
+  .connection-toast {
+    position: fixed;
+    top: 1.25rem;
+    right: 1.25rem;
+    z-index: 20;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: .7rem;
+    width: min(23rem, calc(100vw - 2rem));
+    padding: .8rem .9rem;
+    border: 1px solid rgb(239 68 68 / .28);
+    border-radius: .75rem;
+    background: #30202b;
+    box-shadow: 0 16px 40px rgb(0 0 0 / .38);
+    color: #fca5a5;
+    font-size: .8rem;
+    line-height: 1.4;
+    animation: toast-in 180ms ease-out;
+  }
+
+  .connection-toast.success {
+    border-color: rgb(52 211 153 / .28);
+    background: #18302f;
+    color: #86efc1;
+  }
+
+  .toast-icon { display: grid; place-items: center; width: 1.35rem; height: 1.35rem; border-radius: 50%; background: #fca5a5; color: #30202b; font-weight: 900; }
+  .connection-toast.success .toast-icon { color: #18302f; background: #86efc1; }
+  .toast-close { padding: .15rem .3rem; border: 0; background: none; color: currentColor; font-size: 1.2rem; line-height: 1; cursor: pointer; }
+
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 
   /* Loading state */
@@ -455,13 +523,27 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2rem;
+    gap: 1.5rem;
     width: 100%;
     max-width: 420px;
     animation: fadeIn 0.4s ease-out;
   }
 
   /* App header / logo area */
+  .app-version {
+    margin: -0.5rem 0 0;
+    padding: 0.375rem 0.875rem;
+    border: 1px solid #555879;
+    border-radius: 999px;
+    background: #202338;
+    color: #e2e4ff;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.5;
+    letter-spacing: 0.025em;
+    text-align: center;
+  }
+
   .app-header {
     display: flex;
     align-items: center;
@@ -491,55 +573,19 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
-  /* --- Windows-only layout adjustments ---------------------------------
-   * Everything below is scoped to `[data-os="windows"]` so macOS keeps its
-   * original login layout untouched.
-   *
-   * On Windows/WebView2 `backdrop-filter` does not paint, so the login card
-   * is fully opaque and, when vertically centered, clips straight through
-   * the brand logo. These rules pin the logo relative to the viewport,
-   * reserve room above the card, and add a scroll safety net so the Login
-   * button stays reachable on shorter Windows viewports (a maximized window
-   * on a 1080p display leaves roughly 900–940px after the title bar). */
-  .login-page[data-os="windows"] .brand-backdrop {
-    top: max(1.5rem, 6vh);
-  }
-
-  .login-page[data-os="windows"] .login-content {
-    overflow-y: auto;
-    overflow-x: hidden;
-  }
-
-  .login-page[data-os="windows"] .form-container {
-    margin-block: auto;
-    padding-top: clamp(7rem, 20vh, 11rem);
-  }
-
-  /* Progressive tightening for shorter Windows viewports. */
-  @media (max-height: 900px) {
-    .login-page[data-os="windows"] .brand-backdrop {
-      top: 1.25rem;
+  @media (max-height: 760px), (max-width: 480px) {
+    .login-content {
+      padding: 1.5rem 1rem;
     }
-    .login-page[data-os="windows"] .brand-logo {
-      width: clamp(100px, 13vw, 150px);
+    .brand-logo {
+      width: 120px;
     }
-    .login-page[data-os="windows"] .form-container {
-      gap: 1.5rem;
-      padding-top: clamp(6rem, 15vh, 8.5rem);
-    }
-  }
-
-  @media (max-height: 760px) {
-    .login-page[data-os="windows"] .brand-logo {
-      width: clamp(88px, 11vw, 120px);
-    }
-    .login-page[data-os="windows"] .form-container {
+    .login-stack,
+    .form-container {
       gap: 1.25rem;
-      padding-top: clamp(5rem, 12vh, 7rem);
     }
-    /* Reclaim vertical space inside the card on the tightest layouts. */
-    .login-page[data-os="windows"] :global(.credential-form-wrapper) {
-      padding: 1.75rem;
+    .form-container :global(.credential-form-wrapper) {
+      padding: 1.5rem;
     }
   }
 
@@ -563,7 +609,7 @@
       opacity: 0;
     }
     .brand-logo {
-      opacity: 0.08;
+      opacity: 0.85;
     }
   }
 </style>

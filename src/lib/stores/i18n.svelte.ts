@@ -32,6 +32,11 @@ export function lang(): Lang {
   return current;
 }
 
+/** Locale used by native date formatting for the active app language. */
+export function locale(): "en-GB" | "id-ID" {
+  return current === "id" ? "id-ID" : "en-GB";
+}
+
 export function setLang(next: Lang): void {
   current = next;
   try {
@@ -52,7 +57,6 @@ const DICT: Record<string, Entry> = {
   "calendar.today": { en: "Today", id: "Hari ini" },
   "calendar.prevPeriod": { en: "Previous period", id: "Periode sebelumnya" },
   "calendar.nextPeriod": { en: "Next period", id: "Periode berikutnya" },
-  "calendar.periodTotal": { en: "Period total", id: "Total periode" },
   "calendar.more": { en: "more", id: "lagi" },
   "calendar.break": { en: "Break", id: "Istirahat" },
   "calendar.emptyList": {
@@ -63,6 +67,7 @@ const DICT: Record<string, Entry> = {
     en: "No worklog on this date.",
     id: "Tidak ada worklog di tanggal ini.",
   },
+  "calendar.hoursMissing": { en: "Missing {n}h", id: "Kurang {n} jam" },
   "common.loading": { en: "Loading", id: "Memuat" },
   "common.close": { en: "Close", id: "Tutup" },
   "common.cancel": { en: "Cancel", id: "Batal" },
@@ -86,9 +91,46 @@ const DICT: Record<string, Entry> = {
     en: "Enter your API token",
     id: "Masukkan token API kamu",
   },
+  "login.tokenGuide": { en: "How to create a Jira API token ↗", id: "Cara membuat API token Jira ↗" },
+  "login.firstSetup": { en: "First-time setup", id: "Pengaturan pertama" },
+  "login.firstSetupHint": {
+    en: "Enter your Atlassian site URL, account email, and API token. Test the connection before signing in.",
+    id: "Isi URL situs Atlassian, email akun, dan API token. Tes koneksi sebelum masuk.",
+  },
+  "login.testConnection": { en: "Test connection", id: "Tes koneksi" },
+  "login.testingConnection": { en: "Testing connection…", id: "Menguji koneksi…" },
+  "login.testShort": { en: "Test", id: "Tes" },
+  "login.testingShort": { en: "Testing…", id: "Menguji…" },
+  "login.connectionSuccess": { en: "Connection successful. Connected as {name}.", id: "Koneksi berhasil. Terhubung sebagai {name}." },
+
+  // First-run onboarding
+  "onboarding.step": { en: "Final setup", id: "Pengaturan akhir" },
+  "onboarding.title": { en: "Set your working day", id: "Atur hari kerja kamu" },
+  "onboarding.intro": {
+    en: "These values set your daily target and the default time used for new worklogs.",
+    id: "Nilai ini menentukan target harian dan waktu default untuk worklog baru.",
+  },
+  "onboarding.invalidHours": { en: "Check the target and working hours.", id: "Periksa target dan jam kerja." },
+  "onboarding.invalidBreak": { en: "Break end must be later than its start.", id: "Jam istirahat selesai harus setelah jam mulai." },
+  "onboarding.saving": { en: "Saving…", id: "Menyimpan…" },
+  "onboarding.continue": { en: "Save and open workspace", id: "Simpan dan buka workspace" },
+  "onboarding.changeLater": { en: "You can change these values later in Settings.", id: "Nilai ini dapat diubah lagi melalui Pengaturan." },
 
   // Header
   "header.auditLog": { en: "Audit log", id: "Catatan audit" },
+  "header.sync": { en: "Sync", id: "Sync" },
+  "header.syncing": { en: "Syncing…", id: "Menyinkronkan…" },
+  "header.syncHint": { en: "Reload worklogs from Jira", id: "Muat ulang worklog dari Jira" },
+  "header.syncSuccess": { en: "Worklogs synced with Jira.", id: "Worklog berhasil disinkronkan dengan Jira." },
+  "header.syncFailed": { en: "Could not sync worklogs", id: "Gagal menyinkronkan worklog" },
+  "header.syncQueueFailed": {
+    en: "{n} queued worklog(s) could not be synced.",
+    id: "{n} worklog dalam antrean gagal disinkronkan.",
+  },
+  "header.lastSync": { en: "Last: {time}", id: "Terakhir: {time}" },
+  "header.neverSynced": { en: "Not synced yet", id: "Belum disinkronkan" },
+  "update.restart": { en: "Restart app", id: "Buka ulang aplikasi" },
+  "update.restartFailed": { en: "Update installed. Please restart the app.", id: "Update terpasang. Silakan buka ulang aplikasi." },
   "header.openAuditLog": { en: "Open audit log", id: "Buka catatan audit" },
 
   // Audit log
@@ -106,6 +148,19 @@ const DICT: Record<string, Entry> = {
   },
   "update.action": { en: "Update", id: "Update" },
   "update.downloading": { en: "Downloading {n}…", id: "Mengunduh {n}…" },
+  "update.releaseNotes": { en: "Release notes", id: "Catatan rilis" },
+  "update.noReleaseNotes": {
+    en: "No release notes were provided for this version.",
+    id: "Tidak ada catatan rilis untuk versi ini.",
+  },
+  "update.updatedSuccess": {
+    en: "Updated successfully to version {v}",
+    id: "Berhasil diperbarui ke versi {v}",
+  },
+  "update.verified": {
+    en: "The running application version has been verified.",
+    id: "Versi aplikasi yang sedang berjalan telah diverifikasi.",
+  },
 
   // Settings — shell
   "settings.title": { en: "Settings", id: "Pengaturan" },
@@ -129,6 +184,8 @@ const DICT: Record<string, Entry> = {
   "settings.reminderHour": { en: "Reminder hour (24h)", id: "Jam pengingat (24 jam)" },
   "settings.targetHours": { en: "Target Hours", id: "Target Jam" },
   "settings.dailyTarget": { en: "Daily target (hours)", id: "Target harian (jam)" },
+  "settings.workdayStart": { en: "Workday starts", id: "Jam kerja mulai" },
+  "settings.workdayEnd": { en: "Workday ends", id: "Jam kerja selesai" },
 
   // Settings — auto schedule
   "settings.autoSchedule": { en: "Auto Scheduling", id: "Penjadwalan Otomatis" },

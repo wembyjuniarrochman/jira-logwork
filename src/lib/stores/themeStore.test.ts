@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { resolveTheme, isThemePreference } from "./themeStore.svelte";
+import {
+  DEFAULT_THEME_PREFERENCE,
+  resolveTheme,
+  isThemePreference,
+} from "./themeStore.svelte";
+
+it("menggunakan tema gelap sebagai default instalasi baru", () => {
+  expect(DEFAULT_THEME_PREFERENCE).toBe("dark");
+});
 
 describe("resolveTheme", () => {
   it("mengikuti OS saat preferensi auto", () => {

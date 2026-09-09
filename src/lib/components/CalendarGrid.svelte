@@ -32,7 +32,7 @@
     type IndonesianHoliday,
   } from "../stores/indonesianHolidaysStore";
   import { untrack } from "svelte";
-  import { t } from "../stores/i18n.svelte";
+  import { locale, t } from "../stores/i18n.svelte";
 
   type ViewMode = "day" | "week" | "month" | "list";
 
@@ -313,7 +313,7 @@
   let monthCells = $derived(buildMonthCells(cursorDate));
 
   let monthLabel = $derived(
-    cursorDate.toLocaleDateString("en-GB",{
+    cursorDate.toLocaleDateString(locale(), {
       month: "long",
       year: "numeric",
     }),
@@ -322,7 +322,7 @@
   let weekLabel = $derived(formatWeekLabel(cursorDate));
 
   let dayLabel = $derived(
-    cursorDate.toLocaleDateString("en-GB",{ dateStyle: "full" }),
+    cursorDate.toLocaleDateString(locale(), { dateStyle: "full" }),
   );
 
   interface CalCell {
@@ -339,6 +339,20 @@
     holidayName: string | null;
     /** Jenis libur: nasional (SKB) atau cuti bersama perusahaan. */
     holidayKind: IndonesianHoliday["kind"] | null;
+    /** Sisa jam menuju target; 0 untuk weekend, libur, dan tanggal depan. */
+    shortfall: number;
+  }
+
+  function shortfallFor(
+    date: string,
+    hours: number,
+    holiday: IndonesianHoliday | null | undefined,
+  ): number {
+    const day = parseYMD(date).getDay();
+    if (date > todayStr || day === 0 || day === 6 || holiday || baseline <= 0) {
+      return 0;
+    }
+    return Math.max(0, baseline - hours);
   }
 
   /**
@@ -394,6 +408,7 @@
       isToday: date === todayStr,
       holidayName: h?.name ?? null,
       holidayKind: h?.kind ?? null,
+      shortfall: shortfallFor(date, hours, h),
     };
   }
 
@@ -413,6 +428,7 @@
         isToday: date === todayStr,
         holidayName: h?.name ?? null,
         holidayKind: h?.kind ?? null,
+        shortfall: shortfallFor(date, hours, h),
       });
     }
     return cells;
@@ -435,6 +451,9 @@
         isToday: date === todayStr,
         holidayName: h?.name ?? null,
         holidayKind: h?.kind ?? null,
+        shortfall: cur.getMonth() === d.getMonth()
+          ? shortfallFor(date, hours, h)
+          : 0,
       });
     }
     return cells;
@@ -447,7 +466,7 @@
     const sameYear = sunday.getFullYear() === saturday.getFullYear();
     const fmtDay = (x: Date) => x.getDate();
     const fmtMonth = (x: Date) =>
-      x.toLocaleDateString("en-GB",{ month: "short" });
+      x.toLocaleDateString(locale(), { month: "short" });
     const fmtYear = (x: Date) => x.getFullYear();
 
     if (sameMonth && sameYear) {
@@ -527,23 +546,11 @@
 
   /** Tanggal ringkas untuk baris di dalam kelompok issue, mis. "4 Sep". */
   function shortDate(ymd: string): string {
-    return parseYMD(ymd).toLocaleDateString("en-GB", {
+    return parseYMD(ymd).toLocaleDateString(locale(), {
       day: "numeric",
       month: "short",
     });
   }
-
-  // Total jam pada periode yang ditampilkan (untuk header).
-  let periodTotal = $derived.by(() => {
-    if (mode === "day") return dayCell.hours;
-    if (mode === "week")
-      return weekCells.reduce((s, c) => s + c.hours, 0);
-    if (mode === "list")
-      return listGroups.reduce((s, g) => s + g.hours, 0);
-    return monthCells
-      .filter((c) => c.inCurrentMonth)
-      .reduce((s, c) => s + c.hours, 0);
-  });
 
   // ---------------------------------------------------------------------
   // Navigation handlers
@@ -720,7 +727,9 @@
     hover
       ? (hover.entryIndex !== undefined
           ? [worklogsByDate[hover.date]?.entries[hover.entryIndex]].filter(Boolean) as WorklogEntry[]
-          : worklogsByDate[hover.date]?.entries ?? [])
+          : [...(worklogsByDate[hover.date]?.entries ?? [])].sort(
+              (a, b) => entryStartMin(a) - entryStartMin(b),
+            ))
       : [],
   );
 
@@ -794,7 +803,7 @@
   // Locale formatting
   // ---------------------------------------------------------------------
   function formatLocaleDate(ymd: string): string {
-    return parseYMD(ymd).toLocaleDateString("en-GB",{ dateStyle: "full" });
+    return parseYMD(ymd).toLocaleDateString(locale(), { dateStyle: "full" });
   }
 
   function dayNumber(ymd: string): number {
@@ -1277,10 +1286,17 @@
 
   function ariaLabelFor(cell: CalCell): string {
     const base = `${formatLocaleDate(cell.date)}, ${cell.hours.toFixed(1)} jam`;
-    return cell.holidayName ? `${base}, ${cell.holidayName}` : base;
+    const missing = cell.shortfall > 0
+      ? `, ${t("calendar.hoursMissing", { n: cell.shortfall.toFixed(1) })}`
+      : "";
+    return cell.holidayName ? `${base}${missing}, ${cell.holidayName}` : `${base}${missing}`;
   }
 
-  const WEEK_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+  let weekLabels = $derived(
+    Array.from({ length: 7 }, (_, day) =>
+      new Date(2026, 0, 4 + day).toLocaleDateString(locale(), { weekday: "short" }),
+    ),
+  );
 
   // Max worklog rows shown per Month cell before collapsing into "+N more",
   // so the whole month grid fits one screen without page scrolling.
@@ -1293,6 +1309,8 @@
   // platform lain tetap 3.
   const isWindows =
     typeof navigator !== "undefined" && /Windows|Win32|Win64/.test(navigator.userAgent);
+  const isMacOS =
+    typeof navigator !== "undefined" && /Macintosh|MacIntel/.test(navigator.userAgent);
   const MONTH_CELL_MAX = isWindows ? 2 : 3;
 
   // Skeleton sizes per mode.
@@ -1302,7 +1320,7 @@
 
 <section
   class="calendar-grid glass"
-  data-os={isWindows ? "windows" : undefined}
+  data-os={isWindows ? "windows" : isMacOS ? "macos" : undefined}
   aria-labelledby="calendar-grid-heading"
 >
   <header class="cal-header">
@@ -1381,13 +1399,6 @@
       </div>
     </div>
   </header>
-
-  <div class="totals-row">
-    <span class="totals-label">{t("calendar.periodTotal")}</span>
-    <span class="totals-value">
-      {periodTotal.toFixed(1)}<span class="totals-unit">h</span>
-    </span>
-  </div>
 
   <!-- Grid body -->
   {#if mode === "list"}
@@ -1468,6 +1479,7 @@
     {:else}
       <ul class="list-groups">
         {#each listGroups as g, idx (g.date)}
+          {@const listShortfall = shortfallFor(g.date, g.hours, getHoliday(g.date))}
           <li class="list-group" style="--i: {idx};">
             <button
               type="button"
@@ -1480,7 +1492,7 @@
               <span class="list-group-pill">
                 <span class="list-group-day">{dayNumber(g.date)}</span>
                 <span class="list-group-month">
-                  {parseYMD(g.date).toLocaleDateString("en-GB",{ month: "short" })}
+                  {parseYMD(g.date).toLocaleDateString(locale(), { month: "short" })}
                 </span>
               </span>
               <span class="list-group-meta">
@@ -1490,7 +1502,10 @@
                 </span>
               </span>
               <span class="list-group-hours">
-                {g.hours.toFixed(1)}<span class="list-group-unit">h</span>
+                <span>{g.hours.toFixed(1)}<span class="list-group-unit">h</span></span>
+                {#if listShortfall > 0}
+                  <span class="list-shortfall">{t("calendar.hoursMissing", { n: listShortfall.toFixed(1) })}</span>
+                {/if}
               </span>
             </button>
             <ul class="list-entries">
@@ -1528,8 +1543,11 @@
         {@const entries = worklogsByDate[dayCell.date]?.entries ?? []}
         <div class="timeline-header">
            <span class="timeline-day-name">
-             {parseYMD(dayCell.date).toLocaleDateString("en-GB",{ weekday: 'long', day: 'numeric' })}
+             {parseYMD(dayCell.date).toLocaleDateString(locale(), { weekday: "long", day: "numeric" })}
            </span>
+           {#if dayCell.shortfall > 0}
+             <span class="day-shortfall">{t("calendar.hoursMissing", { n: dayCell.shortfall.toFixed(1) })}</span>
+           {/if}
         </div>
         <div class="timeline-scroll-area no-scroll" bind:clientHeight={timelineViewportHeight}>
           <div class="time-axis">
@@ -1559,7 +1577,7 @@
               ></div>
             {/if}
             {#each entries as entry, idx (entry.id ?? `${entry.issueKey}-${idx}`)}
-              {@const isHoliday = !!dayCell.holidayName || entry.description.toLowerCase().includes('holiday') || entry.issueKey.toLowerCase().includes('holiday')}
+              {@const isHoliday = !!dayCell.holidayName}
               {@const canDrag = dayEditable && !!entry.id}
               {@const segs = segmentsFor(entry, dayCell.date)}
               {#each segs as seg, segIdx (segIdx)}
@@ -1693,9 +1711,19 @@
         <div class="timeline-header week-header">
            <div class="time-axis-spacer"></div>
            {#each weekCells as cell}
-             <div class="timeline-day-col-header" class:today={cell.isToday}>
-               <span class="day-name">{WEEK_LABELS[parseYMD(cell.date).getDay()]}</span>
+             <div
+               class="timeline-day-col-header"
+               class:today={cell.isToday}
+               class:holiday-national={cell.holidayKind === "national"}
+               title={cell.holidayName ?? undefined}
+             >
+               <span class="day-name">{weekLabels[parseYMD(cell.date).getDay()]}</span>
                <span class="day-number">{dayNumber(cell.date)}</span>
+               {#if cell.holidayName}
+                 <span class="week-holiday-name" title={cell.holidayName}>{cell.holidayName}</span>
+               {:else if cell.shortfall > 0}
+                 <span class="week-shortfall">{t("calendar.hoursMissing", { n: cell.shortfall.toFixed(1) })}</span>
+               {/if}
              </div>
            {/each}
         </div>
@@ -1713,6 +1741,7 @@
                 class="day-column"
                 class:addable={!!onAddWorklog}
                 class:weekend={isWeekend(cell.date)}
+                class:holiday-national={cell.holidayKind === "national"}
                 class:drop-target={!!dayDrag &&
                   dayDrag.type === "move" &&
                   dayDrag.targetDate === cell.date &&
@@ -1737,7 +1766,7 @@
                   ></div>
                 {/if}
                 {#each entries as entry, idx (entry.id ?? `${entry.issueKey}-${idx}`)}
-                  {@const isHoliday = !!cell.holidayName || entry.description.toLowerCase().includes('holiday') || entry.issueKey.toLowerCase().includes('holiday')}
+                  {@const isHoliday = !!cell.holidayName}
                   {@const canDrag = dayEditable && !!entry.id}
                   {@const segs = segmentsFor(entry, cell.date)}
                   {#each segs as seg, segIdx (segIdx)}
@@ -1791,7 +1820,7 @@
     </div>
   {:else}
     <ul class="weekday-labels" aria-hidden="true">
-      {#each WEEK_LABELS as label (label)}
+      {#each weekLabels as label (label)}
         <li class="weekday-label">{label}</li>
       {/each}
     </ul>
@@ -1830,6 +1859,8 @@
             class:weekend-sunday={isSunday}
             class:weekend-saturday={isSaturday}
             class:drag-over={isDragOver}
+            class:under-target={cell.shortfall > 0}
+            data-date={cell.date}
             style={`--i: ${i}; ${cell.hours > 0 ? `--cell-bg: ${cell.bg};` : ""}`}
             aria-label={ariaLabelFor(cell)}
             aria-pressed={isSelected}
@@ -1850,9 +1881,11 @@
               {:else}
                 <span class="cell-day">{dayNumber(cell.date)}</span>
               {/if}
-              {#if cell.hours > 0}
-                <span class="cell-hours-mini">
-                  {cell.hours.toFixed(1)}<span class="cell-unit">h</span>
+              {#if cell.hours > 0 || cell.shortfall > 0}
+                <span class="cell-hours-mini" class:shortfall={cell.shortfall > 0}>
+                  {#if cell.hours > 0}{cell.hours.toFixed(1)}<span class="cell-unit">h</span>{/if}
+                  {#if cell.hours > 0 && cell.shortfall > 0}<span class="metric-separator">·</span>{/if}
+                  {#if cell.shortfall > 0}<span class="missing-value">−{cell.shortfall.toFixed(1)}h</span>{/if}
                 </span>
               {/if}
             </div>
@@ -2077,18 +2110,11 @@
    * (MONTH_CELL_MAX), entri ke-2 masih terpotong. Dua langkah, khusus
    * Windows, agar 2 entri tampil utuh — macOS tidak tersentuh:
    *
-   *   1. Sembunyikan bar "PERIOD TOTAL": totalnya sudah tampak di ringkasan
-   *      atas ("MONTH … / target"), jadi redundan, dan ruangnya dikembalikan
-   *      ke grid.
-   *   2. Jamin tinggi baris minimum yang cukup untuk header sel + 2 chip
+   * Jamin tinggi baris minimum yang cukup untuk header sel + 2 chip
    *      entri. `minmax(<min>, 1fr)` tetap membiarkan baris melar mengisi
    *      ruang bila ada, tapi tak pernah menyusut di bawah ambang yang
    *      memotong entri. Bila total tinggi melebihi viewport, area sel
    *      boleh scroll — jauh lebih jarang terjadi setelah bar dihapus. */
-  .calendar-grid[data-os="windows"] .totals-row {
-    display: none;
-  }
-
   .calendar-grid[data-os="windows"] .cell-grid {
     grid-template-rows: repeat(6, minmax(5.5rem, 1fr));
     overflow-y: auto;
@@ -2251,41 +2277,6 @@
     border-color: rgba(99, 102, 241, 0.6);
   }
 
-  /* --- Totals --- */
-
-  .totals-row {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    border-radius: 0.5rem;
-    background: var(--glass-bg-strong);
-    border: 1px solid var(--glass-border);
-  }
-
-  .totals-label {
-    font-size: 0.625rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: rgb(var(--fg-rgb) / 0.6);
-  }
-
-  .totals-value {
-    font-size: 1rem;
-    font-weight: 700;
-    color: var(--text-strong);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .totals-unit {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: rgb(var(--fg-rgb) / 0.7);
-    margin-left: 0.125rem;
-  }
-
   /* --- Weekday labels --- */
 
   .weekday-labels {
@@ -2376,6 +2367,15 @@
         var(--cell-bg) 0%,
         color-mix(in oklab, var(--cell-bg) 70%, transparent) 100%
       );
+  }
+
+  .cell.under-target:not(.has-hours):not(.holiday) {
+    border-color: rgba(248, 113, 113, 0.28);
+    background-image: linear-gradient(
+      135deg,
+      rgba(248, 113, 113, 0.09),
+      rgba(248, 113, 113, 0) 62%
+    );
   }
 
   .cell.out-of-month {
@@ -2533,6 +2533,22 @@
     gap: 0.125rem;
   }
 
+  /* Keep today's badge from pushing the worklog rows down in macOS cells. */
+  .calendar-grid[data-os="macos"] .cell-header {
+    height: 1.25rem;
+    flex-shrink: 0;
+  }
+
+  .calendar-grid[data-os="macos"] .cell-day {
+    line-height: 1.25rem;
+  }
+
+  .calendar-grid[data-os="macos"] .cell-day.today-pill {
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0;
+  }
+
   .cell-hours-mini {
     font-size: 0.625rem;
     font-weight: 600;
@@ -2542,6 +2558,24 @@
     padding: 0.0625rem 0.25rem;
     border-radius: 0.25rem;
     flex-shrink: 0;
+  }
+
+  .cell-hours-mini.shortfall {
+    color: #fca5a5;
+    background: rgba(239, 68, 68, 0.12);
+  }
+
+  .cell-hours-mini.shortfall .cell-unit {
+    color: rgb(var(--fg-rgb) / 0.64);
+  }
+
+  .metric-separator {
+    margin: 0 0.2rem;
+    color: rgb(var(--fg-rgb) / 0.38);
+  }
+
+  .missing-value {
+    color: #fca5a5;
   }
 
   .cell-unit {
@@ -2774,6 +2808,7 @@
   .timeline-day-col-header {
     display: flex;
     flex-direction: column;
+    min-width: 0;
     padding: 0.25rem 0.25rem;
     border-right: 1px solid var(--glass-border);
     background: rgb(var(--fg-rgb) / 0.02);
@@ -2781,6 +2816,30 @@
 
   .timeline-day-col-header:last-child {
     border-right: none;
+  }
+
+  .week-holiday-name {
+    margin-top: 0.125rem;
+    font-size: 0.625rem;
+    font-weight: 500;
+    line-height: 1.4;
+    color: var(--text-danger);
+    text-transform: none;
+    text-shadow: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .week-shortfall {
+    margin-top: 0.125rem;
+    overflow: hidden;
+    color: #fca5a5;
+    font-size: 0.5625rem;
+    font-weight: 650;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .timeline-day-col-header.today {
@@ -2804,6 +2863,15 @@
 
   .timeline-day-col-header.today .day-number {
     color: #818cf8;
+  }
+
+  .timeline-day-col-header.holiday-national {
+    background: rgba(239, 68, 68, 0.12);
+  }
+
+  .timeline-day-col-header.holiday-national .day-name,
+  .timeline-day-col-header.holiday-national .day-number {
+    color: var(--text-danger);
   }
 
   .week-grid-container {
@@ -2861,12 +2929,23 @@
 
   /* Weekend (Sat/Sun): vertical red wash top-to-bottom. The grid's hour lines
      show through the translucent tint. No lunch break is rendered on weekends. */
-  .day-column.weekend {
+  .day-column.weekend,
+  .day-column.holiday-national {
     background-image: linear-gradient(
       180deg,
       rgba(239, 68, 68, 0.16) 0%,
       rgba(239, 68, 68, 0.04) 100%
     );
+  }
+
+  /* Keep weekday holidays visible all the way down the 24-hour column. */
+  .day-column.holiday-national {
+    background-color: rgba(239, 68, 68, 0.12);
+  }
+
+  .day-column.holiday-national.drop-target {
+    background-color: rgba(99, 102, 241, 0.14);
+    box-shadow: inset 0 0 0 2px rgba(99, 102, 241, 0.55);
   }
 
   .grid-container.weekend {
@@ -2937,6 +3016,23 @@
     box-shadow:
       0 4px 12px rgb(var(--shadow-rgb) / calc(0.15 * var(--shadow-strength))),
       inset 0 1px 0 rgb(var(--fg-rgb) / 0.05);
+  }
+
+  .day-timeline > .timeline-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .day-shortfall {
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    background: rgba(239, 68, 68, 0.12);
+    color: #fca5a5;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    white-space: nowrap;
   }
 
   .sticky-header {
@@ -4103,11 +4199,22 @@
   }
 
   .list-group-hours {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
     font-size: 1.125rem;
     font-weight: 700;
     color: var(--text-strong);
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
+  }
+
+  .list-shortfall {
+    margin-top: 0.125rem;
+    color: #fca5a5;
+    font-size: 0.625rem;
+    font-weight: 650;
+    white-space: nowrap;
   }
 
   .list-group-unit {

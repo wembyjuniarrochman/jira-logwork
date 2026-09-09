@@ -13,23 +13,44 @@
   import { t } from "../stores/i18n.svelte";
   import {
     checkForUpdate,
+    UpdateRestartError,
+    restartAfterUpdate,
     downloadAndInstall,
     downloadPercent,
     formatBytes,
+    currentVersion,
+    takeInstalledUpdate,
     type AvailableUpdate,
     type DownloadProgress,
   } from "../stores/updaterStore";
   import { updateCheckRequest } from "../stores/updateSignal.svelte";
 
-  type Phase = "idle" | "available" | "installing" | "error";
+  type Phase = "idle" | "available" | "installing" | "error" | "restart-error" | "updated";
 
   let phase = $state<Phase>("idle");
   let update = $state<AvailableUpdate | null>(null);
   let progress = $state<DownloadProgress>({ downloaded: 0, total: null });
   let errorMsg = $state<string | null>(null);
   let dismissed = $state<boolean>(false);
+  let runningVersion = $state<string>("");
+  let verifiedVersion = $state<string | null>(null);
 
   let percent = $derived(downloadPercent(progress));
+
+  $effect(() => {
+    void (async () => {
+      const [current, installed] = await Promise.all([
+        currentVersion(),
+        takeInstalledUpdate(),
+      ]);
+      runningVersion = current;
+      if (installed) {
+        verifiedVersion = installed;
+        phase = "updated";
+        dismissed = false;
+      }
+    })();
+  });
 
   // Berjalan sekali saat mount, lalu setiap kali panel Tentang meminta cek
   // ulang. Pengecekan manual juga membatalkan status "Nanti" sebelumnya —
@@ -38,7 +59,7 @@
     const requested = updateCheckRequest();
     void (async () => {
       const found = await checkForUpdate();
-      if (found) {
+      if (found && phase !== "installing" && phase !== "updated") {
         update = found;
         phase = "available";
         if (requested > 0) dismissed = false;
@@ -47,21 +68,26 @@
   });
 
   async function install(): Promise<void> {
-    if (!update) return;
+    if (!update || phase === "installing") return;
+    const restartOnly = phase === "restart-error";
     phase = "installing";
     errorMsg = null;
     try {
-      await downloadAndInstall(update, (p) => {
-        progress = p;
-      });
+      if (restartOnly) {
+        await restartAfterUpdate();
+      } else {
+        await downloadAndInstall(update, (p) => {
+          progress = p;
+        });
+      }
     } catch (err) {
-      phase = "error";
+      phase = restartOnly || err instanceof UpdateRestartError ? "restart-error" : "error";
       errorMsg = err instanceof Error ? err.message : String(err);
     }
   }
 </script>
 
-{#if update && !dismissed && phase !== "idle"}
+{#if !dismissed && phase !== "idle" && (update || verifiedVersion)}
   <div class="update-bar glass glass-overlay" role="status" aria-live="polite">
     <svg
       class="update-icon"
@@ -79,7 +105,10 @@
     </svg>
 
     <div class="update-body">
-      {#if phase === "installing"}
+      {#if phase === "updated"}
+        <span class="update-title">{t("update.updatedSuccess", { v: verifiedVersion ?? runningVersion })}</span>
+        <span class="update-sub">{t("update.verified")}</span>
+      {:else if phase === "installing" && update}
         <span class="update-title">{t("update.installing", { v: update.version })}</span>
         <div
           class="progress-track"
@@ -101,25 +130,38 @@
             {percent}% · {formatBytes(progress.downloaded)}
           {/if}
         </span>
-      {:else if phase === "error"}
-        <span class="update-title">{t("update.failed")}</span>
+      {:else if phase === "error" || phase === "restart-error"}
+        <span class="update-title">{t(phase === "restart-error" ? "update.restartFailed" : "update.failed")}</span>
         <span class="update-sub error">{errorMsg}</span>
-      {:else}
+      {:else if update}
         <span class="update-title">{t("update.available", { v: update.version })}</span>
+        <span class="version-transition">
+          v{runningVersion || "…"} <span aria-hidden="true">→</span> v{update.version}
+        </span>
         <span class="update-sub">
           {t("update.willRestart")}
         </span>
+        <details class="release-notes">
+          <summary>{t("update.releaseNotes")}</summary>
+          <p>{update.notes?.trim() || t("update.noReleaseNotes")}</p>
+        </details>
       {/if}
     </div>
 
     {#if phase !== "installing"}
       <div class="update-actions">
-        <button type="button" class="btn-later" onclick={() => (dismissed = true)}>
-          {t("common.later")}
-        </button>
-        <button type="button" class="btn-install" onclick={install}>
-          {phase === "error" ? t("common.retry") : t("update.action")}
-        </button>
+        {#if phase === "updated"}
+          <button type="button" class="btn-install" onclick={() => (dismissed = true)}>
+            {t("common.close")}
+          </button>
+        {:else}
+          <button type="button" class="btn-later" onclick={() => (dismissed = true)}>
+            {t("common.later")}
+          </button>
+          <button type="button" class="btn-install" onclick={install}>
+            {phase === "restart-error" ? t("update.restart") : phase === "error" ? t("common.retry") : t("update.action")}
+          </button>
+        {/if}
       </div>
     {/if}
   </div>
@@ -132,9 +174,9 @@
     bottom: 1.25rem;
     z-index: 60;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.875rem;
-    width: min(24rem, calc(100vw - 2.5rem));
+    width: min(30rem, calc(100vw - 2.5rem));
     padding: 0.875rem 1rem;
     border-radius: 0.875rem;
     box-shadow: 0 18px 40px -12px rgb(var(--shadow-rgb) / calc(0.6 * var(--shadow-strength)));
@@ -165,6 +207,36 @@
   .update-sub {
     font-size: 0.75rem;
     color: rgb(var(--fg-rgb) / 0.6);
+  }
+
+  .version-transition {
+    width: fit-content;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    background: rgb(var(--fg-rgb) / 0.08);
+    color: var(--text-accent-strong);
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+
+  .release-notes {
+    margin-top: 0.2rem;
+    font-size: 0.75rem;
+    color: rgb(var(--fg-rgb) / 0.7);
+  }
+
+  .release-notes summary {
+    cursor: pointer;
+    color: var(--text-accent-strong);
+    font-weight: 600;
+  }
+
+  .release-notes p {
+    max-height: 7rem;
+    margin: 0.45rem 0 0;
+    overflow: auto;
+    white-space: pre-wrap;
+    line-height: 1.45;
   }
 
   .update-sub.error {
@@ -204,6 +276,7 @@
     align-items: center;
     gap: 0.5rem;
     flex-shrink: 0;
+    align-self: center;
   }
 
   .btn-later,

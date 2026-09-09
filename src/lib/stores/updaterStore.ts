@@ -89,13 +89,14 @@ export async function downloadAndInstall(
   onProgress?: (p: DownloadProgress) => void,
 ): Promise<void> {
   const handle = update.raw as {
-    downloadAndInstall: (cb: (e: DownloadEvent) => void) => Promise<void>;
+    download: (cb: (e: DownloadEvent) => void) => Promise<void>;
+    install: (options: { restartAfterInstall: boolean }) => Promise<void>;
   };
 
   let downloaded = 0;
   let total: number | null = null;
 
-  await handle.downloadAndInstall((event) => {
+  await handle.download((event) => {
     if (event.event === "Started") {
       total = event.data.contentLength ?? null;
       downloaded = 0;
@@ -105,8 +106,26 @@ export async function downloadAndInstall(
     onProgress?.({ downloaded, total });
   });
 
-  // Windows: installer NSIS mengambil alih dan menutup aplikasi sendiri,
-  // jadi relaunch bisa jadi tidak pernah tercapai — itu wajar.
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("prepare_update_restart", { version: update.version });
+  // Windows exits here and the installer launches the new application.
+  await handle.install({ restartAfterInstall: true });
+  // macOS/Linux return after installation and require an explicit restart.
+  try {
+    await restartAfterUpdate();
+  } catch (error) {
+    throw new UpdateRestartError(error);
+  }
+}
+
+export class UpdateRestartError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = "UpdateRestartError";
+  }
+}
+
+export async function restartAfterUpdate(): Promise<void> {
   const { relaunch } = await import("@tauri-apps/plugin-process");
   await relaunch();
 }
@@ -124,5 +143,18 @@ export async function currentVersion(): Promise<string> {
     return await getVersion();
   } catch {
     return "";
+  }
+}
+
+/**
+ * Ambil bukti satu-kali bahwa proses restart benar-benar menjalankan versi
+ * yang diminta updater. Marker dibuat oleh Rust setelah versi binary cocok.
+ */
+export async function takeInstalledUpdate(): Promise<string | null> {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<string | null>("take_update_success");
+  } catch {
+    return null;
   }
 }

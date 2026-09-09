@@ -22,7 +22,9 @@ export type ThemePreference = "auto" | "light" | "dark";
 /** Yang benar-benar dirender, setelah `auto` diselesaikan. */
 export type ResolvedTheme = "light" | "dark";
 
-export const DEFAULT_THEME_PREFERENCE: ThemePreference = "auto";
+// Instalasi baru dimulai dengan tema gelap. Preferensi yang sudah pernah
+// dipilih user tetap dimuat dari settings.json dan tidak ditimpa.
+export const DEFAULT_THEME_PREFERENCE: ThemePreference = "dark";
 
 /** Pure: true iff `value` adalah preferensi tema yang sah. */
 export function isThemePreference(value: unknown): value is ThemePreference {
@@ -97,7 +99,7 @@ export function setThemePreference(next: ThemePreference): void {
 
 // --- Persistensi ---
 
-/** Muat preferensi tema dari `settings.json`; default `auto`. */
+/** Muat preferensi tema dari `settings.json`; default `dark` untuk instalasi baru. */
 export async function loadThemePreference(): Promise<ThemePreference> {
   try {
     const { load } = await import("@tauri-apps/plugin-store");

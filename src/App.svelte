@@ -2,6 +2,7 @@
   import Login from "./lib/pages/Login.svelte";
   import Workspace from "./lib/pages/Workspace.svelte";
   import UpdateBanner from "./lib/components/UpdateBanner.svelte";
+  import OnboardingSetup from "./lib/components/OnboardingSetup.svelte";
   import {
     loadCredentials,
     isCredentialComplete,
@@ -10,6 +11,7 @@
   } from "./lib/stores/authStore";
   import { clearCacheForEmail } from "./lib/stores/worklogCacheStore";
   import { initTheme, hydrateTheme } from "./lib/stores/themeStore.svelte";
+  import { isOnboardingCompleted } from "./lib/stores/onboardingStore";
 
   // Tema dipasang sedini mungkin: `initTheme` menerapkan preferensi OS dan
   // memantau perubahannya, lalu `hydrateTheme` menimpanya dengan pilihan
@@ -21,11 +23,12 @@
     return stop;
   });
 
-  type AppAuthPhase = "loading" | "unauthenticated" | "authenticated";
+  type AppAuthPhase = "loading" | "unauthenticated" | "onboarding" | "authenticated";
 
   let authPhase = $state<AppAuthPhase>("loading");
   let credentials = $state<Credentials>({ baseUrl: "", email: "", apiToken: "" });
   let hasStoredCredentials = $state(false);
+  let needsOnboarding = $state(false);
 
   // Load credentials on startup and determine auth phase
   async function initAuth() {
@@ -33,6 +36,10 @@
       const loaded = await loadCredentials();
       credentials = loaded;
       hasStoredCredentials = isCredentialComplete(loaded);
+      const onboardingDone = await isOnboardingCompleted();
+      // Existing installations already have a Jira identity stored. Keep
+      // their established flow even though the onboarding key is new.
+      needsOnboarding = !onboardingDone && !loaded.baseUrl.trim() && !loaded.email.trim();
     } catch {
       credentials = { baseUrl: "", email: "", apiToken: "" };
       hasStoredCredentials = false;
@@ -41,8 +48,9 @@
     authPhase = "unauthenticated";
   }
 
-  function handleAuthenticated() {
-    authPhase = "authenticated";
+  function handleAuthenticated(next: Credentials) {
+    credentials = next;
+    authPhase = needsOnboarding ? "onboarding" : "authenticated";
   }
 
   function handleLogout() {
@@ -103,11 +111,15 @@
     onAuthenticated={handleAuthenticated}
   />
 {:else}
+  {#if authPhase === "onboarding"}
+    <OnboardingSetup onComplete={() => { needsOnboarding = false; authPhase = "authenticated"; }} />
+  {:else}
   <Workspace
     {displayName}
     email={credentials.email}
     {onLogout}
   />
+  {/if}
 {/if}
 
 <!-- Di luar percabangan auth: update ditawarkan baik di layar login maupun

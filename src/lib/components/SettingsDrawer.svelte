@@ -124,9 +124,11 @@
   let reminderEnabled = $state(false);
   let reminderHour = $state<number>(9);
   let targetHours = $state<number>(8);
+  let workdayStart = $state("09:00");
+  let workdayEnd = $state("18:00");
 
   // Inline validation errors for the Reminder + Target Hours sections.
-  let settingsErrors = $state<{ reminderHour?: string; targetHours?: string }>({});
+  let settingsErrors = $state<{ reminderHour?: string; targetHours?: string; workdayHours?: string }>({});
 
   // --- Auto-schedule form state (mirrored from props on open) --------------
   let autoEnabled = $state(false);
@@ -205,6 +207,8 @@
         reminderEnabled = initialSettings.reminderEnabled;
         reminderHour = initialSettings.reminderHour;
         targetHours = initialSettings.targetHours;
+        workdayStart = initialSettings.workdayStart;
+        workdayEnd = initialSettings.workdayEnd;
         autoEnabled = initialAutoSchedule.enabled;
         autoActivities = initialAutoSchedule.activities.map((a) => ({ ...a }));
         autoDays = [...initialAutoSchedule.daysOfWeek];
@@ -315,6 +319,8 @@
       reminderEnabled,
       reminderHour,
       targetHours,
+      workdayStart,
+      workdayEnd,
     };
     const result = validateWorkspaceSettings(next);
     if (!result.valid) {
@@ -714,6 +720,19 @@
               </p>
             {/if}
           </div>
+          <div class="break-times">
+            <div class="form-field">
+              <label for="settings-workday-start">{t("settings.workdayStart")}</label>
+              <input id="settings-workday-start" type="time" bind:value={workdayStart} />
+            </div>
+            <div class="form-field">
+              <label for="settings-workday-end">{t("settings.workdayEnd")}</label>
+              <input id="settings-workday-end" type="time" bind:value={workdayEnd} />
+            </div>
+          </div>
+          {#if settingsErrors.workdayHours}
+            <p class="field-error" role="alert">{settingsErrors.workdayHours}</p>
+          {/if}
         </section>
 
         <!-- ============================================================ -->

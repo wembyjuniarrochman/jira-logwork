@@ -6,11 +6,14 @@ export interface WorkspaceSettings {
   reminderHour: number;
   /** 1..12 inclusive, multiple of 0.5 (R4.5). */
   targetHours: number;
+  /** Default workday range used when creating a new worklog. */
+  workdayStart: string;
+  workdayEnd: string;
 }
 
 export interface SettingsValidation {
   valid: boolean;
-  errors: { reminderHour?: string; targetHours?: string };
+  errors: { reminderHour?: string; targetHours?: string; workdayHours?: string };
 }
 
 // --- Defaults ---
@@ -19,6 +22,8 @@ export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
   reminderEnabled: false,
   reminderHour: 9,
   targetHours: 8,
+  workdayStart: "09:00",
+  workdayEnd: "18:00",
 };
 
 // --- Pure validation (R4.5) ---
@@ -33,7 +38,7 @@ export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
  * input.
  */
 export function validateWorkspaceSettings(s: WorkspaceSettings): SettingsValidation {
-  const errors: { reminderHour?: string; targetHours?: string } = {};
+  const errors: { reminderHour?: string; targetHours?: string; workdayHours?: string } = {};
 
   const { reminderHour, targetHours } = s;
 
@@ -45,6 +50,19 @@ export function validateWorkspaceSettings(s: WorkspaceSettings): SettingsValidat
     reminderHour > 22
   ) {
     errors.reminderHour = "Reminder hour must be an integer between 8 and 22.";
+  }
+
+  const toMinutes = (value: string): number | null => {
+    const match = /^(\d{2}):(\d{2})$/.exec(value ?? "");
+    if (!match) return null;
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    return hours <= 23 && minutes <= 59 ? hours * 60 + minutes : null;
+  };
+  const start = toMinutes(s.workdayStart);
+  const end = toMinutes(s.workdayEnd);
+  if (start === null || end === null || end <= start) {
+    errors.workdayHours = "Workday end must be later than its start.";
   }
 
   if (
@@ -84,8 +102,9 @@ export function secondsForHours(h: number): number {
  * Pure: convert a `YYYY-MM-DD` date string to the Jira `started` format
  * expected by `add_worklog` (R9.3).
  */
-export function jiraStarted(date: string): string {
-  return `${date}T09:00:00.000+0000`;
+export function jiraStarted(date: string, startTime = DEFAULT_WORKSPACE_SETTINGS.workdayStart): string {
+  const safeTime = /^\d{2}:\d{2}$/.test(startTime) ? startTime : DEFAULT_WORKSPACE_SETTINGS.workdayStart;
+  return `${date}T${safeTime}:00.000+0000`;
 }
 
 // --- Persistence (R14.6) ---
@@ -94,6 +113,8 @@ const SETTINGS_FILE = "settings.json";
 const KEY_REMINDER_ENABLED = "reminderEnabled";
 const KEY_REMINDER_HOUR = "reminderHour";
 const KEY_TARGET_HOURS = "targetHours";
+const KEY_WORKDAY_START = "workdayStart";
+const KEY_WORKDAY_END = "workdayEnd";
 
 /**
  * Load workspace settings from `settings.json`. Returns sensible defaults
@@ -108,6 +129,8 @@ export async function loadWorkspaceSettings(): Promise<WorkspaceSettings> {
     const reminderEnabledRaw = await store.get<boolean>(KEY_REMINDER_ENABLED);
     const reminderHourRaw = await store.get<number>(KEY_REMINDER_HOUR);
     const targetHoursRaw = await store.get<number>(KEY_TARGET_HOURS);
+    const workdayStartRaw = await store.get<string>(KEY_WORKDAY_START);
+    const workdayEndRaw = await store.get<string>(KEY_WORKDAY_END);
 
     const reminderEnabled =
       typeof reminderEnabledRaw === "boolean"
@@ -124,7 +147,13 @@ export async function loadWorkspaceSettings(): Promise<WorkspaceSettings> {
         ? targetHoursRaw
         : DEFAULT_WORKSPACE_SETTINGS.targetHours;
 
-    return { reminderEnabled, reminderHour, targetHours };
+    const timePattern = /^\d{2}:\d{2}$/;
+    const workdayStart = typeof workdayStartRaw === "string" && timePattern.test(workdayStartRaw)
+      ? workdayStartRaw : DEFAULT_WORKSPACE_SETTINGS.workdayStart;
+    const workdayEnd = typeof workdayEndRaw === "string" && timePattern.test(workdayEndRaw)
+      ? workdayEndRaw : DEFAULT_WORKSPACE_SETTINGS.workdayEnd;
+
+    return { reminderEnabled, reminderHour, targetHours, workdayStart, workdayEnd };
   } catch {
     return { ...DEFAULT_WORKSPACE_SETTINGS };
   }
@@ -140,5 +169,7 @@ export async function saveWorkspaceSettings(s: WorkspaceSettings): Promise<void>
   await store.set(KEY_REMINDER_ENABLED, s.reminderEnabled);
   await store.set(KEY_REMINDER_HOUR, s.reminderHour);
   await store.set(KEY_TARGET_HOURS, s.targetHours);
+  await store.set(KEY_WORKDAY_START, s.workdayStart);
+  await store.set(KEY_WORKDAY_END, s.workdayEnd);
   await store.save();
 }

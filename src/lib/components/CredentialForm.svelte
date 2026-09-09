@@ -16,10 +16,12 @@
     welcomeEmail: string | null;
     rememberToken: boolean;
     onSubmit: (creds: Credentials) => void;
+    onTestConnection: (creds: Credentials) => void;
+    connectionTestState: "idle" | "testing" | "success" | "error";
     onRememberTokenChange: (value: boolean) => void;
   }
 
-  let { credentials, isLoading, error, welcomeEmail, rememberToken, onSubmit, onRememberTokenChange }: Props = $props();
+  let { credentials, isLoading, error, welcomeEmail, rememberToken, onSubmit, onTestConnection, connectionTestState, onRememberTokenChange }: Props = $props();
 
   // Local form state bound to inputs
   let baseUrl = $state("");
@@ -76,7 +78,9 @@
   let submitBtn: HTMLButtonElement | null = $state(null);
 
   let formCreds = $derived<Credentials>({ baseUrl, email, apiToken });
-  let canSubmit = $derived(isFormSubmittable(formCreds) && !isLoading);
+  let canSubmit = $derived(
+    isFormSubmittable(formCreds) && !isLoading && connectionTestState !== "testing",
+  );
 
   function handleSubmit(e: Event) {
     e.preventDefault();
@@ -91,6 +95,29 @@
     if (!urlResult.valid || !emailResult.valid) return;
 
     onSubmit({ baseUrl, email, apiToken });
+  }
+
+  function validateCredentials(): Credentials | null {
+    const urlResult = validateUrl(baseUrl);
+    const emailResult = validateEmail(email);
+    urlError = urlResult.valid ? null : (urlResult.error ?? "Invalid URL");
+    emailError = emailResult.valid ? null : (emailResult.error ?? "Invalid email");
+    return urlResult.valid && emailResult.valid ? { baseUrl, email, apiToken } : null;
+  }
+
+  function handleTest(): void {
+    const creds = validateCredentials();
+    if (creds) onTestConnection(creds);
+  }
+
+  async function openTokenGuide(): Promise<void> {
+    const url = "https://id.atlassian.com/manage-profile/security/api-tokens";
+    try {
+      const { open } = await import("@tauri-apps/plugin-shell");
+      await open(url);
+    } catch {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
   }
 </script>
 
@@ -171,16 +198,52 @@
     <!-- API Token field -->
     <div class="form-field">
       <label for="jira-token">{t("login.apiToken")}</label>
-      <input
-        id="jira-token"
-        type="password"
-        bind:this={tokenInput}
-        bind:value={apiToken}
-        placeholder={t("login.tokenPlaceholder")}
-        autocomplete="current-password"
-        disabled={isLoading}
-      />
+      <div class="token-input-wrap">
+        <input
+          id="jira-token"
+          type="password"
+          bind:this={tokenInput}
+          bind:value={apiToken}
+          placeholder={t("login.tokenPlaceholder")}
+          autocomplete="current-password"
+          disabled={isLoading}
+        />
+        <button
+          type="button"
+          class="token-test-btn"
+          class:testing={connectionTestState === "testing"}
+          disabled={!canSubmit}
+          onclick={handleTest}
+          aria-label={t("login.testConnection")}
+          title={t("login.testConnection")}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M20 7v5h-5" />
+            <path d="M4 17v-5h5" />
+            <path d="M6.1 9a7 7 0 0 1 11.8-2L20 12" />
+            <path d="M17.9 15a7 7 0 0 1-11.8 2L4 12" />
+          </svg>
+        </button>
+      </div>
+      <button type="button" class="token-guide" onclick={openTokenGuide} disabled={isLoading}>
+        {t("login.tokenGuide")}
+      </button>
     </div>
+
+    {#if !welcomeEmail}
+      <div class="setup-guide">
+        <strong>{t("login.firstSetup")}</strong>
+        <span>{t("login.firstSetupHint")}</span>
+      </div>
+    {/if}
 
     <!-- Remember Token checkbox -->
     <div class="remember-field">
@@ -353,6 +416,19 @@
     border-color: rgba(239, 68, 68, 0.6);
     box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
   }
+
+  .token-guide { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--text-accent-strong); font-size: .75rem; cursor: pointer; }
+  .token-input-wrap { position: relative; }
+  .token-input-wrap input { padding-right: 3.6rem; }
+  .token-test-btn { position: absolute; top: 50%; right: .4rem; display: grid; place-items: center; width: 2.45rem; height: 2.45rem; padding: 0; transform: translateY(-50%); border: 1px solid rgb(var(--fg-rgb) / .16); border-radius: .48rem; background: rgb(var(--fg-rgb) / .09); color: var(--text-accent-strong); cursor: pointer; }
+  .token-test-btn svg { width: 1.15rem; height: 1.15rem; }
+  .token-test-btn.testing svg { animation: token-test-spin .8s linear infinite; }
+  .token-test-btn:hover:not(:disabled) { background: rgb(var(--fg-rgb) / .14); }
+  .token-test-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+  .token-test-btn:disabled { opacity: .5; cursor: not-allowed; }
+  @keyframes token-test-spin { to { transform: rotate(360deg); } }
+  .setup-guide { display: flex; flex-direction: column; gap: .25rem; padding: .75rem; border-radius: .65rem; background: rgb(var(--fg-rgb) / .05); color: rgb(var(--fg-rgb) / .68); font-size: .75rem; line-height: 1.4; }
+  .setup-guide strong { color: var(--text-primary); }
 
   .field-error {
     font-size: 0.75rem;

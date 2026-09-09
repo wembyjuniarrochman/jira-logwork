@@ -57,6 +57,7 @@
     date: string;
     description: string;
     started?: string;
+    queueId?: string;
   }
 
   interface Props {
@@ -88,6 +89,7 @@
     /** Jam istirahat yang berlaku; menggeser jam selesai, bukan memotong
      *  durasi kerja. */
     breakConfig?: BreakConfig;
+    defaultStartTime?: string;
     onWorklogSubmitted: (e: WorklogEvent) => void;
     onWorklogQueued: (e: WorklogEvent) => void;
     onCancelEdit?: () => void;
@@ -106,6 +108,7 @@
     localEdit = false,
     initialStartedTime = null,
     breakConfig = DEFAULT_BREAK_CONFIG,
+    defaultStartTime = "09:00",
     onWorklogSubmitted,
     onWorklogQueued,
     onCancelEdit,
@@ -130,7 +133,7 @@
         startedTime = editWorklog.started.slice(11, 16);
       } else {
         startedDate = selectedDate;
-        startedTime = "09:00";
+        startedTime = defaultStartTime;
       }
       const h = editWorklog.hours;
       // Dicocokkan lewat menit agar preset pecahan seperti 5 menit tidak
@@ -147,7 +150,7 @@
       selectedIssue = null;
       description = "";
       startedDate = selectedDate;
-      startedTime = initialStartedTime ?? "09:00";
+      startedTime = initialStartedTime ?? defaultStartTime;
       chipState = { chipHours: 1, customHours: null };
       setCustomParts(1);
     }
@@ -554,7 +557,7 @@
     timeStr: string,
     sourceStarted: string | undefined,
   ): string {
-    if (!dateStr) return jiraStarted(selectedDate);
+    if (!dateStr) return jiraStarted(selectedDate, defaultStartTime);
     const time = (timeStr || "09:00").slice(0, 5);
     // Original offset is the trailing "+0700" / "-0500" / "Z" of the source.
     const offsetMatch = sourceStarted?.match(/(Z|[+-]\d{2}:?\d{2})$/);
@@ -687,14 +690,23 @@
 
       if (classified.type === "network") {
         try {
-          await addPendingWorklog({
+          const queued = await addPendingWorklog({
             issueKey,
             timeSpentSeconds,
             started,
             comment,
           });
           submitState = "queued";
-          onWorklogQueued({ issueKey, summary, issueType, hours, date, description: comment, started });
+          onWorklogQueued({
+            issueKey,
+            summary,
+            issueType,
+            hours,
+            date,
+            description: comment,
+            started,
+            queueId: queued.id,
+          });
 
           // Hold the queued state long enough for the user to read it; same
           // duration as success so the visual rhythm matches.
