@@ -1302,6 +1302,7 @@
 
 <section
   class="calendar-grid glass"
+  data-os={isWindows ? "windows" : undefined}
   aria-labelledby="calendar-grid-heading"
 >
   <header class="cal-header">
@@ -2068,6 +2069,29 @@
     width: 100%;
     height: 100%;
     min-height: 0;
+  }
+
+  /* --- Windows-only month calendar fit ---------------------------------
+   * Di WebView2 sel bulanan lebih pendek (title bar OS memakan `100vh`,
+   * konten atas ter-render lebih tinggi), sehingga meski entri dibatasi 2
+   * (MONTH_CELL_MAX), entri ke-2 masih terpotong. Dua langkah, khusus
+   * Windows, agar 2 entri tampil utuh — macOS tidak tersentuh:
+   *
+   *   1. Sembunyikan bar "PERIOD TOTAL": totalnya sudah tampak di ringkasan
+   *      atas ("MONTH … / target"), jadi redundan, dan ruangnya dikembalikan
+   *      ke grid.
+   *   2. Jamin tinggi baris minimum yang cukup untuk header sel + 2 chip
+   *      entri. `minmax(<min>, 1fr)` tetap membiarkan baris melar mengisi
+   *      ruang bila ada, tapi tak pernah menyusut di bawah ambang yang
+   *      memotong entri. Bila total tinggi melebihi viewport, area sel
+   *      boleh scroll — jauh lebih jarang terjadi setelah bar dihapus. */
+  .calendar-grid[data-os="windows"] .totals-row {
+    display: none;
+  }
+
+  .calendar-grid[data-os="windows"] .cell-grid {
+    grid-template-rows: repeat(6, minmax(5.5rem, 1fr));
+    overflow-y: auto;
   }
 
   .cal-header {
