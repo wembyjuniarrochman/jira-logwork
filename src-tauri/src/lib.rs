@@ -309,9 +309,14 @@ fn escape_jql_string(s: &str) -> String {
 /// searches. Keep track of queries that need a literal summary comparison
 /// after Jira has returned candidate issues.
 fn needs_literal_summary_filter(query: &str) -> bool {
-    query
+    let has_special_character = query
         .chars()
-        .any(|ch| !ch.is_alphanumeric() && !ch.is_whitespace())
+        .any(|ch| !ch.is_alphanumeric() && !ch.is_whitespace());
+    // Jira's text index is optimized for words. Numeric references embedded
+    // in summaries (for example `[IRQ-1460]`) are not consistently returned
+    // by `summary ~ "1460*"`, so resolve number-only searches literally too.
+    let number_only = !query.is_empty() && query.chars().all(|ch| ch.is_ascii_digit());
+    has_special_character || number_only
 }
 
 /// Retain only issues whose summary contains the user's original query.
@@ -1263,6 +1268,7 @@ mod tests {
         assert!(needs_literal_summary_filter("Daily; sync"));
         assert!(needs_literal_summary_filter(";"));
         assert!(needs_literal_summary_filter("[IRQ-1460]"));
+        assert!(needs_literal_summary_filter("1460"));
         assert!(!needs_literal_summary_filter("Daily sync"));
         assert!(needs_literal_summary_filter("BTPM-128"));
     }
