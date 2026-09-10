@@ -309,16 +309,9 @@ fn escape_jql_string(s: &str) -> String {
 /// searches. Keep track of queries that need a literal summary comparison
 /// after Jira has returned candidate issues.
 fn needs_literal_summary_filter(query: &str) -> bool {
-    !is_issue_key(query)
-        && query
-            .chars()
-            .any(|ch| !ch.is_alphanumeric() && !ch.is_whitespace())
-}
-
-/// A punctuation-only query has no indexed word Jira can use to narrow the
-/// request. We therefore fetch recent summaries and filter them locally.
-fn is_punctuation_only_query(query: &str) -> bool {
-    !query.chars().any(|ch| ch.is_alphanumeric())
+    query
+        .chars()
+        .any(|ch| !ch.is_alphanumeric() && !ch.is_whitespace())
 }
 
 /// Retain only issues whose summary contains the user's original query.
@@ -334,6 +327,75 @@ fn filter_issues_by_literal_summary(response: &str, query: &str) -> Result<Strin
         });
     }
     serde_json::to_string(&payload).map_err(|e| e.to_string())
+}
+
+/// Fetch one page of Jira issue search results with a consistent response
+/// shape. Literal punctuation searches use the same endpoint as normal JQL,
+/// but need a larger candidate set because punctuation is absent from Jira's
+/// text index.
+async fn fetch_issue_search_response(
+    client: &Client,
+    config: &JiraConfig,
+    jql: &str,
+    max_results: u16,
+) -> Result<String, String> {
+    let url = format!(
+        "{}/rest/api/3/search/jql?jql={}&maxResults={}&fields=summary,issuetype,subtasks",
+        config.base_url.trim_end_matches('/'),
+        urlencoding::encode(jql),
+        max_results
+    );
+    let resp = client
+        .get(&url)
+        .header("Authorization", config.auth_header())
+        .header("Content-Type", "application/json")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!(
+            "HTTP {}: {}",
+            resp.status(),
+            resp.text().await.unwrap_or_default()
+        ));
+    }
+    resp.text().await.map_err(|e| e.to_string())
+}
+
+/// Add exact-key results ahead of literal-summary results, without returning
+/// duplicate issues. This matters for a query such as `IRQ-1460`: it may be
+/// a real Jira key, or a code embedded in another issue's summary.
+fn merge_issue_search_responses(primary: &str, secondary: &str) -> Result<String, String> {
+    let mut primary_payload: serde_json::Value =
+        serde_json::from_str(primary).map_err(|e| e.to_string())?;
+    let secondary_payload: serde_json::Value =
+        serde_json::from_str(secondary).map_err(|e| e.to_string())?;
+
+    let Some(primary_issues) = primary_payload
+        .get_mut("issues")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return serde_json::to_string(&primary_payload).map_err(|e| e.to_string());
+    };
+
+    let mut seen: std::collections::HashSet<String> = primary_issues
+        .iter()
+        .filter_map(|issue| issue["key"].as_str().map(str::to_owned))
+        .collect();
+    if let Some(secondary_issues) = secondary_payload
+        .get("issues")
+        .and_then(serde_json::Value::as_array)
+    {
+        for issue in secondary_issues {
+            let Some(key) = issue["key"].as_str() else {
+                continue;
+            };
+            if seen.insert(key.to_owned()) {
+                primary_issues.push(issue.clone());
+            }
+        }
+    }
+    serde_json::to_string(&primary_payload).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -353,16 +415,16 @@ async fn search_issues(base_url: String, email: String, api_token: String, is_cl
     };
 
     let requires_literal_filter = needs_literal_summary_filter(query);
-    let punctuation_only = requires_literal_filter && is_punctuation_only_query(query);
 
     let jql = if query.is_empty() {
         match project_key.trim().is_empty() {
             true => "ORDER BY updated DESC".to_string(),
             false => format!("project = {} ORDER BY updated DESC", project_key),
         }
-    } else if punctuation_only {
-        // Special characters alone are absent from Jira's text index. Fetch
-        // a broader recent set and apply the literal comparison below.
+    } else if requires_literal_filter {
+        // Jira strips punctuation from its text index. Fetch a broader recent
+        // set and apply an exact summary comparison below; this supports
+        // `[IRQ-1460]`, `IRQ-1460`, and `;` alike.
         format!("{}summary IS NOT EMPTY ORDER BY updated DESC", project_clause)
     } else {
         // Kotak ini menjanjikan "issue key atau summary", tapi `summary ~`
@@ -386,21 +448,22 @@ async fn search_issues(base_url: String, email: String, api_token: String, is_cl
             project_clause, text_query, key_clause
         )
     };
-    // A punctuation-only query cannot be narrowed by Jira's index. Request a
-    // larger candidate set so a single `;` can still find matching summaries.
-    let max_results = if punctuation_only { 1000 } else { 50 };
-    let url = format!("{}/rest/api/3/search/jql?jql={}&maxResults={}&fields=summary,issuetype,subtasks",
-        config.base_url.trim_end_matches('/'), urlencoding::encode(&jql), max_results);
-    let resp = client.get(&url)
-        .header("Authorization", config.auth_header())
-        .header("Content-Type", "application/json")
-        .send().await.map_err(|e| e.to_string())?;
-    if !resp.status().is_success() {
-        return Err(format!("HTTP {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
-    }
-    let text = resp.text().await.map_err(|e| e.to_string())?;
+    let max_results = if requires_literal_filter { 1000 } else { 50 };
+    let text = fetch_issue_search_response(&client, &config, &jql, max_results).await?;
     if requires_literal_filter {
-        filter_issues_by_literal_summary(&text, query)
+        let literal_matches = filter_issues_by_literal_summary(&text, query)?;
+        if is_issue_key(query) {
+            let exact_key_jql = format!(
+                "{}key = \"{}\" ORDER BY updated DESC",
+                project_clause,
+                query.to_uppercase()
+            );
+            let exact_key_matches =
+                fetch_issue_search_response(&client, &config, &exact_key_jql, 1).await?;
+            merge_issue_search_responses(&exact_key_matches, &literal_matches)
+        } else {
+            Ok(literal_matches)
+        }
     } else {
         Ok(text)
     }
@@ -1172,7 +1235,7 @@ pub fn run() {
 mod tests {
     use super::{
         escape_jira_text_search, escape_jql_string, filter_issues_by_literal_summary,
-        is_punctuation_only_query, needs_literal_summary_filter,
+        merge_issue_search_responses, needs_literal_summary_filter,
     };
 
     #[test]
@@ -1199,10 +1262,9 @@ mod tests {
     fn marks_special_character_queries_for_literal_matching() {
         assert!(needs_literal_summary_filter("Daily; sync"));
         assert!(needs_literal_summary_filter(";"));
+        assert!(needs_literal_summary_filter("[IRQ-1460]"));
         assert!(!needs_literal_summary_filter("Daily sync"));
-        assert!(!needs_literal_summary_filter("BTPM-128"));
-        assert!(is_punctuation_only_query(";"));
-        assert!(!is_punctuation_only_query("Daily;"));
+        assert!(needs_literal_summary_filter("BTPM-128"));
     }
 
     #[test]
@@ -1217,5 +1279,20 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_str(&filtered).unwrap();
         assert_eq!(payload["issues"].as_array().unwrap().len(), 1);
         assert_eq!(payload["issues"][0]["key"], "BTPM-1");
+    }
+
+    #[test]
+    fn retains_real_issue_key_alongside_a_matching_summary_code() {
+        let exact_key = r#"{"issues":[{"key":"IRQ-1460","fields":{"summary":"Real Jira issue"}}]}"#;
+        let literal_summary = r#"{"issues":[{"key":"EVS-1178","fields":{"summary":"[IRQ-1460] Enhance"}}]}"#;
+        let merged = merge_issue_search_responses(exact_key, literal_summary).unwrap();
+        let payload: serde_json::Value = serde_json::from_str(&merged).unwrap();
+        let keys: Vec<&str> = payload["issues"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|issue| issue["key"].as_str().unwrap())
+            .collect();
+        assert_eq!(keys, ["IRQ-1460", "EVS-1178"]);
     }
 }
