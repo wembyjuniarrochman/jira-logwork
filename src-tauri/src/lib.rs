@@ -262,13 +262,54 @@ fn is_issue_key(s: &str) -> bool {
         && num.chars().all(|c| c.is_ascii_digit())
 }
 
+/// Escape characters interpreted as operators by Jira's underlying text
+/// search parser. The value is later placed in a quoted JQL string, so this
+/// is deliberately separate from `escape_jql_string` below: the two parsers
+/// have different escape rules.
+///
+/// This keeps searches for issue summaries containing punctuation such as
+/// `;`, `-`, `"`, `'`, `/`, or parentheses valid and literal.
+fn escape_jira_text_search(s: &str) -> String {
+    let mut escaped = String::with_capacity(s.len());
+    for ch in s.chars() {
+        if matches!(
+            ch,
+            '+' | '-'
+                | '&'
+                | '|'
+                | '!'
+                | '('
+                | ')'
+                | '{'
+                | '}'
+                | '['
+                | ']'
+                | '^'
+                | '"'
+                | '~'
+                | '*'
+                | '?'
+                | ':'
+                | '\\'
+                | '/'
+        ) {
+            escaped.push('\\');
+        }
+        escaped.push(ch);
+    }
+    escaped
+}
+
+/// Escape a value that will be written inside a double-quoted JQL literal.
+fn escape_jql_string(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 #[tauri::command]
 async fn search_issues(base_url: String, email: String, api_token: String, is_cloud: bool, project_key: String, query: String) -> Result<String, String> {
     let config = JiraConfig { base_url, email, api_token, is_cloud };
     let client = http_client().clone();
-    // JQL string literal: backslash dan kutip harus di-escape, kalau tidak
-    // query yang memuat `"` akan memecah sintaksnya.
-    let escaped = query.trim().replace('\\', "\\\\").replace('"', "\\\"");
+    let query = query.trim();
 
     // Klausa project dihilangkan saat scope-nya "semua project". Sebelumnya
     // `project = ` tetap ditulis dengan nilai kosong, menghasilkan JQL tidak
@@ -280,7 +321,7 @@ async fn search_issues(base_url: String, email: String, api_token: String, is_cl
         format!("project = {} AND ", project_key)
     };
 
-    let jql = if escaped.is_empty() {
+    let jql = if query.is_empty() {
         match project_key.trim().is_empty() {
             true => "ORDER BY updated DESC".to_string(),
             false => format!("project = {} ORDER BY updated DESC", project_key),
@@ -289,17 +330,22 @@ async fn search_issues(base_url: String, email: String, api_token: String, is_cl
         // Kotak ini menjanjikan "issue key atau summary", tapi `summary ~`
         // tidak pernah mencocokkan key. Saat inputnya berbentuk key utuh
         // (mis. "UMS-405"), cocokkan key-nya juga.
-        let key_clause = if is_issue_key(&escaped) {
-            format!(" OR key = \"{}\"", escaped.to_uppercase())
+        let key_clause = if is_issue_key(query) {
+            format!(" OR key = \"{}\"", query.to_uppercase())
         } else {
             String::new()
         };
+        // `summary ~` diteruskan Jira ke parser pencarian teksnya sendiri.
+        // Escape dulu operator parser itu (mis. `-`, `"`, dan `/`), lalu
+        // escape lagi untuk string JQL. Sufiks wildcard sengaja ditambahkan
+        // setelah escaping agar pencarian awalan seperti "Daily" tetap ada.
+        let text_query = escape_jql_string(&format!("{}*", escape_jira_text_search(query)));
         // Sufiks `*` mengubah pencocokan kata-utuh jadi per-awalan-kata.
         // Tanpa ini, `summary ~ "p"` tidak pernah cocok dengan "Payment",
         // sehingga mengetik satu-dua huruf selalu menghasilkan nol hasil.
         format!(
-            "{}(summary ~ \"{}*\"{}) ORDER BY updated DESC",
-            project_clause, escaped, key_clause
+            "{}(summary ~ \"{}\"{}) ORDER BY updated DESC",
+            project_clause, text_query, key_clause
         )
     };
     let url = format!("{}/rest/api/3/search/jql?jql={}&maxResults=50&fields=summary,issuetype,subtasks",
@@ -1075,4 +1121,29 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{escape_jira_text_search, escape_jql_string};
+
+    #[test]
+    fn escapes_jira_text_operators_but_keeps_regular_punctuation_searchable() {
+        assert_eq!(
+            escape_jira_text_search(r#"OPS-12; "owner's" / daily"#),
+            r#"OPS\-12; \"owner's\" \/ daily"#,
+        );
+    }
+
+    #[test]
+    fn safely_nests_a_text_query_inside_a_jql_string() {
+        let text_query = format!(
+            "{}*",
+            escape_jira_text_search(r#"OPS-12; "owner's""#),
+        );
+        assert_eq!(
+            escape_jql_string(&text_query),
+            r#"OPS\\-12; \\\"owner's\\\"*"#,
+        );
+    }
 }
