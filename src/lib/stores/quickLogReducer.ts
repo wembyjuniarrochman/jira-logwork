@@ -132,6 +132,19 @@ export function formatDecimalHours(minutes: number): string {
   return `${Number(hours.toFixed(2))}h`;
 }
 
+/**
+ * Pure: hari kerja desimal yang ringkas — "0.1875d", "1d".
+ *
+ * Satu hari kerja adalah `HOURS_PER_DAY`, bukan 24 jam. Empat digit desimal
+ * cukup untuk mempertahankan ketelitian langkah terkecil 5 menit (1/96 hari)
+ * tanpa menampilkan deret pecahan float yang panjang.
+ */
+export function formatDecimalDays(minutes: number): string {
+  if (!Number.isFinite(minutes) || minutes <= 0) return "";
+  const days = minutes / (HOURS_PER_DAY * 60);
+  return `${Number(days.toFixed(4))}d`;
+}
+
 /** Pure: gabungkan hari/jam/menit menjadi jam desimal. */
 export function joinDuration(days: number, hours: number, minutes: number): number {
   const d = Number.isFinite(days) ? days : 0;

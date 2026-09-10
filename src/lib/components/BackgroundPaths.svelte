@@ -8,13 +8,12 @@
    * parameter — but the animation is implemented purely in CSS instead
    * of framer-motion.
    *
-   * Each curve uses `pathLength="1"` so we can talk about strokes in a
-   * normalized 0..1 length. We then run two concurrent animations:
-   *   - `flow`  → `stroke-dashoffset` cycles, so the lit segment flows
-   *               along the curve. This stands in for framer-motion's
-   *               `pathOffset: [0, 1, 0]`.
-   *   - `pulse` → opacity oscillates so curves brighten and dim, like
-   *               the original `opacity: [0.3, 0.6, 0.3]`.
+   * Each curve uses `pathLength="1"`. The animation is a single
+   * `pulse` → opacity oscillates so curves brighten and dim, like
+   * the original `opacity: [0.3, 0.6, 0.3]`. The original also had a
+   * `flow` (stroke-dashoffset) animation, but that was removed for
+   * performance: stroke-dashoffset repaints on the CPU under WebView2
+   * (Windows), whereas opacity composites on the GPU.
    *
    * Each path also gets its own random duration (20–30 s) and a negative
    * delay so the cycles never line up; this matches the
@@ -57,17 +56,29 @@
     return `M${x0} ${y0}C${c1x} ${c1y} ${c2x} ${c2y} ${e1x} ${e1y}C${c3x} ${c3y} ${c4x} ${c4y} ${e2x} ${e2y}`;
   }
 
+  // Path count per layer. Reduced from 36 → 16: the curves stack tightly, so
+  // fewer strokes is barely perceptible while more than halving the number of
+  // animated elements (a key win for WebView2 on Windows).
+  const PATHS_PER_LAYER = 16;
+
   function buildLayer(position: 1 | -1, baseDelay: number): PathSpec[] {
-    return Array.from({ length: 36 }, (_, i) => ({
-      d: pathD(i, position),
-      width: 0.5 + i * 0.03,
-      opacity: 0.1 + i * 0.03,
-      // Source uses Math.random(); a deterministic but irregular
-      // distribution gives the same "no two are in sync" feel without
-      // re-randomizing on every render.
-      duration: 20 + ((i * 7) % 10),
-      delay: -(baseDelay + i * 0.45),
-    }));
+    return Array.from({ length: PATHS_PER_LAYER }, (_, i) => {
+      // Map the reduced index onto the original 0..35 geometry range so the
+      // curves still fan out across the whole viewport (rather than clustering
+      // in the first 16 slots). width/opacity follow the geometric index so
+      // the depth gradient matches the original look.
+      const gi = (i * 35) / (PATHS_PER_LAYER - 1);
+      return {
+        d: pathD(gi, position),
+        width: 0.5 + gi * 0.03,
+        opacity: 0.1 + gi * 0.03,
+        // Source uses Math.random(); a deterministic but irregular
+        // distribution gives the same "no two are in sync" feel without
+        // re-randomizing on every render.
+        duration: 20 + ((i * 7) % 10),
+        delay: -(baseDelay + i * 0.45),
+      };
+    });
   }
 
   const layerOne = buildLayer(1, 0);
@@ -210,23 +221,20 @@
   .path {
     stroke: currentColor;
     stroke-linecap: round;
-    /* `pathLength="1"` lets us use 0..1 numbers here and they map to
-     * the same fraction of the actual path. A long dash + slightly
-     * shorter gap leaves a thin "trail" between repeated dashes. */
-    stroke-dasharray: 0.45 0.55;
+    /* Solid stroke. With the flow animation gone, a static dash pattern
+     * would just look like broken lines, so we draw the full curve and let
+     * the opacity pulse carry the motion. */
+    stroke-dasharray: 1 0;
     /* Multiplied with the pulse animation to produce the soft fade. */
     stroke-opacity: var(--base-opacity);
-    animation:
-      bg-flow var(--dur) linear var(--delay) infinite,
-      bg-pulse calc(var(--dur) * 0.5) ease-in-out var(--delay) infinite;
-    will-change: stroke-dashoffset, stroke-opacity;
-  }
-
-  /* Stroke-dashoffset cycles 0 → -1 so the lit segment flows along the
-   * curve. Linear easing matches the source's `ease: "linear"`. */
-  @keyframes bg-flow {
-    0%   { stroke-dashoffset: 0; }
-    100% { stroke-dashoffset: -1; }
+    /* Only the opacity pulse remains. The previous `bg-flow`
+     * (stroke-dashoffset) animation was dropped: stroke-dashoffset is not
+     * GPU-accelerated on Windows/WebView2 and forced a CPU repaint every
+     * frame for each path. Opacity compositing is GPU-friendly everywhere. */
+    animation: bg-pulse calc(var(--dur) * 0.5) ease-in-out var(--delay) infinite;
+    /* `will-change: opacity` only — the old value promoted 72 paths to
+     * permanent composite layers, which was the biggest GPU-memory cost. */
+    will-change: stroke-opacity;
   }
 
   /* Opacity oscillation modeled after the source's
@@ -247,13 +255,11 @@
     );
   }
 
-  /* Reduced motion: freeze flow and reveal the curves as a static
+  /* Reduced motion: freeze the pulse and reveal the curves as a static
    * composition with their resting opacity. */
   @media (prefers-reduced-motion: reduce) {
     .path {
       animation: none;
-      stroke-dasharray: 1 0;
-      stroke-dashoffset: 0;
       stroke-opacity: var(--base-opacity);
     }
   }

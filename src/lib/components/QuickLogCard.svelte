@@ -32,6 +32,7 @@
     normalizeMinutes,
     formatDurationLong,
     formatDecimalHours,
+    formatDecimalDays,
     HOURS_PER_DAY,
   } from "../stores/quickLogReducer";
   import { secondsForHours, jiraStarted } from "../stores/settingsStore";
@@ -47,6 +48,7 @@
   import { addPendingWorklog } from "../stores/offlineStore";
   import { fetchProjects, type JiraProject } from "../stores/searchStore";
   import { tick } from "svelte";
+  import { loadAiSettings } from "../stores/aiSettingsStore";
 
   interface WorklogEvent {
     issueKey: string;
@@ -90,6 +92,7 @@
      *  durasi kerja. */
     breakConfig?: BreakConfig;
     defaultStartTime?: string;
+    aiEnabled?: boolean;
     onWorklogSubmitted: (e: WorklogEvent) => void;
     onWorklogQueued: (e: WorklogEvent) => void;
     onCancelEdit?: () => void;
@@ -109,6 +112,7 @@
     initialStartedTime = null,
     breakConfig = DEFAULT_BREAK_CONFIG,
     defaultStartTime = "09:00",
+    aiEnabled = false,
     onWorklogSubmitted,
     onWorklogQueued,
     onCancelEdit,
@@ -162,7 +166,7 @@
   let chipState = $state<ChipState>({ chipHours: 1, customHours: null });
 
   /**
-   * Tiga kolom durasi.
+   * Dua bagian input durasi: jam dan menit.
    *
    * Tipenya `string | number | null` karena `bind:value` pada
    * `<input type="number">` mengubah nilainya menjadi **angka** (atau `null`
@@ -170,9 +174,8 @@
    * string. Menganggapnya string saja membuat `.trim()` melempar TypeError
    * di dalam handler input — commit-nya batal diam-diam dan mengetik di
    * kolom ini terasa tidak berpengaruh sama sekali.
-   */
+  */
   type DurationPart = string | number | null;
-  let customDays = $state<DurationPart>("");
   let customHoursPart = $state<DurationPart>("");
   let customMinutes = $state<DurationPart>("");
 
@@ -190,27 +193,16 @@
     return v.trim() === "";
   }
 
-  /**
-   * Tulis satu durasi ke ketiga kolom sekaligus, masing-masing dalam
-   * satuannya sendiri: 15 menit menjadi 0.03 hari, 0.25 jam, dan 15 menit.
-   * Ketiganya menggambarkan durasi yang sama, jadi tidak boleh dijumlahkan.
-   */
+  /** Tulis satu durasi ke dua input komponen: jam dan menit. */
   function setCustomParts(hours: number | null): void {
     if (hours === null || hours <= 0) {
-      customDays = "";
       customHoursPart = "";
       customMinutes = "";
       return;
     }
     const total = minutesOf(hours);
-    customDays = trimNum(total / (HOURS_PER_DAY * 60));
-    customHoursPart = trimNum(total / 60);
-    customMinutes = String(total);
-  }
-
-  /** Pure: angka ringkas tanpa nol di belakang — 1, 1.5, 0.03. */
-  function trimNum(v: number): string {
-    return String(Number(v.toFixed(2)));
+    customHoursPart = String(Math.floor(total / 60));
+    customMinutes = String(total % 60);
   }
 
   let description = $state<string>("");
@@ -381,14 +373,27 @@
     minute: t("unit.minute"),
   });
 
-  /** Durasi berlaku dalam kata — "1 jam 30 menit". */
-  const durationSummary = $derived(
-    formatDurationLong(minutesOf(effectiveHours), durationUnits),
-  );
-
   /** Padanan desimalnya — bentuk yang dipakai Jira, mis. "0.25h". */
   const durationDecimal = $derived(
     formatDecimalHours(minutesOf(effectiveHours)),
+  );
+
+  /** Konversi yang dibaca, bukan diedit: hari kerja desimal dan menit total. */
+  const durationDecimalDays = $derived(
+    formatDecimalDays(minutesOf(effectiveHours)),
+  );
+
+  const durationDecimalDayValue = $derived(durationDecimalDays.slice(0, -1));
+  const durationDecimalHourValue = $derived(durationDecimal.slice(0, -1));
+  const durationTotalMinutes = $derived(minutesOf(effectiveHours));
+  const durationDayUnit = $derived(
+    Number(durationDecimalDayValue) === 1 ? t("log.decimalDay") : t("log.decimalDays"),
+  );
+  const durationHourUnit = $derived(
+    Number(durationDecimalHourValue) === 1 ? t("log.decimalHour") : t("log.decimalHours"),
+  );
+  const durationMinuteUnit = $derived(
+    durationTotalMinutes === 1 ? t("log.totalMinute") : t("log.totalMinutes"),
   );
 
   const canSubmitNow = $derived(
@@ -420,6 +425,21 @@
     submitError = null;
   }
 
+  async function improveDescription(note: string): Promise<string> {
+    // Quick Log can remain mounted while the Settings drawer is open. Read
+    // the persisted preference at click time so a newly saved provider/key
+    // is used immediately instead of a stale prop from that open popover.
+    const savedAiSettings = await loadAiSettings();
+    if (!savedAiSettings.enabled) {
+      throw new Error("Bantuan AI belum diaktifkan di Pengaturan.");
+    }
+    return invoke<string>("improve_work_description", {
+      note,
+      language: savedAiSettings.language,
+      provider: savedAiSettings.provider,
+    });
+  }
+
   // --- Chip / custom-hours handlers ---
 
   /**
@@ -444,70 +464,46 @@
 
   function handleChipChange(value: ChipValue) {
     chipState = chipReducer(chipState, { type: "chipClick", value });
-    // Chip dan tiga kolom adalah dua tampilan dari nilai yang sama, jadi
-    // menekan chip harus langsung terbaca di kolom Hari/Jam/Menit.
+    // Chip dan dua input adalah tampilan dari nilai yang sama, jadi menekan
+    // chip harus langsung memperbarui Jam dan Menit.
     setCustomParts(value);
   }
 
-  // --- Tiga kolom durasi -------------------------------------------------
+  // --- Input durasi (Jam + Menit) ---------------------------------------
 
-  /** Satuan yang diwakili tiap kolom, dalam menit. */
-  const UNIT_MINUTES = {
-    days: HOURS_PER_DAY * 60,
-    hours: 60,
-    minutes: 1,
-  } as const;
-
-  type DurationUnit = keyof typeof UNIT_MINUTES;
-
-  /**
-   * Ketiga kolom adalah **tampilan setara** dari satu durasi, bukan bagian
-   * yang dijumlahkan: 15 menit tampil sebagai 0.03 hari, 0.25 jam, dan 15
-   * menit sekaligus.
-   *
-   * Karena itu mengubah satu kolom menetapkan seluruh durasi dari kolom itu
-   * saja — menjumlahkan ketiganya akan menghitung durasi yang sama tiga
-   * kali.
-   */
-  function totalFrom(unit: DurationUnit): number {
-    const raw =
-      unit === "days"
-        ? customDays
-        : unit === "hours"
-          ? customHoursPart
-          : customMinutes;
-    return partNum(raw) * UNIT_MINUTES[unit];
+  /** Kedua input adalah bagian dari satu durasi, sehingga dijumlahkan. */
+  function inputTotalMinutes(): number {
+    return partNum(customHoursPart) * 60 + partNum(customMinutes);
   }
 
   function allPartsEmpty(): boolean {
-    return (
-      partEmpty(customDays) &&
-      partEmpty(customHoursPart) &&
-      partEmpty(customMinutes)
-    );
+    return partEmpty(customHoursPart) && partEmpty(customMinutes);
   }
 
-  function commitCustomDuration(unit: DurationUnit): void {
+  function commitCustomDuration(): void {
     if (allPartsEmpty()) {
       applyDuration(null);
       return;
     }
-    const total = totalFrom(unit) / 60;
+    const total = inputTotalMinutes() / 60;
+    if (total <= 0) {
+      applyDuration(null);
+      return;
+    }
     if (!isValidCustomHours(total)) return;
     applyDuration(total);
   }
 
   /**
-   * Bulatkan ke kelipatan 5 menit, lalu tulis ulang ketiga kolom dari nilai
-   * itu sehingga ketiganya selalu menggambarkan durasi yang sama.
+   * Bulatkan ke kelipatan 5 menit, lalu tulis ulang dua input dari nilai itu.
    *
    * Dijalankan pada `change` — saat meninggalkan field atau menekan panah
    * stepper — bukan pada setiap ketikan. Kalau ditulis ulang per karakter,
    * mengetik "15" mustahil: digit "1" langsung dinormalkan dan kolomnya
    * berubah sebelum digit kedua sempat masuk.
    */
-  function normalizeCustomDuration(unit: DurationUnit): void {
-    const normalized = allPartsEmpty() ? 0 : normalizeMinutes(totalFrom(unit));
+  function normalizeCustomDuration(): void {
+    const normalized = allPartsEmpty() ? 0 : normalizeMinutes(inputTotalMinutes());
     if (normalized === 0) {
       setCustomParts(null);
       applyDuration(null);
@@ -909,13 +905,13 @@
   <div class="section hours-section">
     <div class="hours-head">
       <span class="field-label">{t("log.hours")}</span>
-      {#if durationSummary}
-        <!-- Total yang berlaku, dieja lengkap. Tiga kolom angka mudah
-             disalahbaca (nilai 0 mirip field kosong), jadi hasil akhirnya
-             dinyatakan sekali dengan kata-kata. -->
-        <span class="hours-total" aria-live="polite">
-          {durationSummary}
-          <span class="hours-decimal">{durationDecimal}</span>
+      {#if effectiveHours > 0}
+        <!-- Konversi menjadi ringkasan tunggal; durasi verbal tidak dirender
+             di sini agar fokus tetap pada nilai yang dibutuhkan. -->
+        <span class="hours-conversions" aria-label={t("log.conversion")} aria-live="polite">
+          {durationDecimalDayValue} {durationDayUnit} ·
+          {durationDecimalHourValue} {durationHourUnit} ·
+          {durationTotalMinutes} {durationMinuteUnit}
         </span>
       {/if}
     </div>
@@ -935,25 +931,11 @@
       <TimePresetChips value={chipState.chipHours} onChange={handleChipChange} />
     </div>
 
-    <!-- Tiga kolom terpisah menggantikan satu input jam desimal: menuliskan
-         "1 jam 30 menit" tidak lagi menuntut user mengubahnya jadi 1.5. -->
+    <!-- Input utama memakai satuan yang biasa dipakai pengguna. Nilai Hari,
+         Jam desimal, dan Menit total ditampilkan sebagai informasi saja di
+         bawahnya, sehingga ketiganya tidak disalahpahami sebagai input yang
+         harus diisi. -->
     <div class="duration-row">
-      <div class="duration-field">
-        <label for="{customHoursId}-d" class="duration-label">{t("log.days")}</label>
-        <input
-          id="{customHoursId}-d"
-          type="number"
-          min="0"
-          max="3"
-          step="any"
-          inputmode="decimal"
-          class="duration-input"
-          bind:value={customDays}
-          oninput={() => commitCustomDuration("days")}
-          onchange={() => normalizeCustomDuration("days")}
-          aria-describedby="{uid}-hours-hint"
-        />
-      </div>
       <div class="duration-field">
         <label for="{customHoursId}-h" class="duration-label">{t("log.hoursPart")}</label>
         <input
@@ -961,12 +943,12 @@
           type="number"
           min="0"
           max="24"
-          step="any"
-          inputmode="decimal"
+          step="1"
+          inputmode="numeric"
           class="duration-input"
           bind:value={customHoursPart}
-          oninput={() => commitCustomDuration("hours")}
-          onchange={() => normalizeCustomDuration("hours")}
+          oninput={commitCustomDuration}
+          onchange={normalizeCustomDuration}
           aria-describedby="{uid}-hours-hint"
         />
       </div>
@@ -976,13 +958,13 @@
           id="{customHoursId}-m"
           type="number"
           min="0"
-          max="1440"
+          max="59"
           step="5"
           inputmode="numeric"
           class="duration-input"
           bind:value={customMinutes}
-          oninput={() => commitCustomDuration("minutes")}
-          onchange={() => normalizeCustomDuration("minutes")}
+          oninput={commitCustomDuration}
+          onchange={normalizeCustomDuration}
           aria-describedby="{uid}-hours-hint"
         />
       </div>
@@ -1022,6 +1004,8 @@
       maxlength={500}
       placeholder={t("settings.workPlaceholder")}
       ariaInvalid={!descriptionValid}
+      {aiEnabled}
+      onImprove={improveDescription}
     />
     <div class="char-count" aria-live="polite">
       {description.length} / 500
@@ -1439,17 +1423,11 @@
     gap: 0.5rem;
   }
 
-  .hours-total {
+  /* Konversi ringkas menjadi hasil utama di rangkuman atas. */
+  .hours-conversions {
     font-size: 0.75rem;
     font-weight: 600;
     color: var(--text-accent);
-  }
-
-  /* Padanan desimal, diredam agar bentuk utamanya tetap yang terbaca. */
-  .hours-decimal {
-    margin-left: 0.375rem;
-    font-weight: 500;
-    color: rgb(var(--fg-rgb) / 0.5);
   }
 
   .break-notice {
@@ -1479,7 +1457,7 @@
 
   .duration-row {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.5rem;
   }
 

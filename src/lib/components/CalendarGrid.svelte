@@ -125,6 +125,13 @@
   }
   let draggedWorklog: DraggedWorklog | null = null;
   let dragOverDate = $state<string | null>(null);
+  // Reactive flag mirroring `draggedWorklog`'s active state. Needed because
+  // `draggedWorklog` is a plain module-local (not `$state`), so the template
+  // can't react to it. We use this to hide the hover popover while a drag is
+  // in progress — otherwise the fixed, 20rem-wide popover (z-index 40,
+  // pointer-events: auto) sits over the cells to the right of the source and
+  // intercepts the drag, making it impossible to drop onto those days.
+  let isDraggingEntry = $state(false);
 
   // Cell merender semua entry untuk hari itu — tidak ada cap. Cell akan
   // tumbuh sesuai jumlah chip; baris grid otomatis menyamakan tinggi. Hover
@@ -153,6 +160,11 @@
         entry.timeSpentSeconds ?? Math.round(entry.hours * 3600),
       started: entry.started,
     };
+    isDraggingEntry = true;
+    // Dismiss any open hover popover so it can't sit over — and block drops
+    // onto — the cells to the right of the source day. `hoverPos` is derived
+    // from `hover`, so clearing `hover` collapses the popover entirely.
+    hover = null;
     // Some browsers (Firefox) require dataTransfer to be set for the drag
     // to start. The string value isn't used downstream — we read from the
     // module-level `draggedWorklog` for the rich payload.
@@ -165,6 +177,7 @@
   function handleEntryDragEnd(): void {
     draggedWorklog = null;
     dragOverDate = null;
+    isDraggingEntry = false;
   }
 
   function handleCellDragOver(event: DragEvent, targetDate: string): void {
@@ -193,6 +206,7 @@
     const payload = draggedWorklog;
     draggedWorklog = null;
     dragOverDate = null;
+    isDraggingEntry = false;
     if (!payload || payload.sourceDate === targetDate) return;
     onWorklogMoved?.({
       worklogId: payload.id,
@@ -664,7 +678,7 @@
   }
 
   function showHoverByPointer(event: MouseEvent, date: string, entryIndex?: number): void {
-    if (mode === "day") return;
+    if (mode === "day" || isDraggingEntry) return;
     clearHoverTimer();
     // Anchor to the whole cell — works whether the pointer is over the cell
     // background or one of its entries — so the popover sits beside the cell.
@@ -696,7 +710,7 @@
   }
 
   function showHoverByFocus(event: FocusEvent, date: string): void {
-    if (mode === "day") return;
+    if (mode === "day" || isDraggingEntry) return;
     clearHoverTimer();
     const target = event.currentTarget as HTMLElement | null;
     if (!target) return;
@@ -1957,7 +1971,7 @@
 
 <!-- Hover popover: shows the day's worklog entries with clickable Jira
      issue keys. Mounted only while a cell is hovered/focused. -->
-{#if hover && hoverPos && mode !== "day"}
+{#if hover && hoverPos && mode !== "day" && !isDraggingEntry}
   <div
     bind:this={hoverEl}
     class="hover-popover"
@@ -2552,26 +2566,32 @@
   .cell-hours-mini {
     font-size: 0.625rem;
     font-weight: 600;
-    color: rgb(var(--fg-rgb) / 0.7);
+    color: #f4f4f5;
     font-variant-numeric: tabular-nums;
-    background: rgb(var(--shadow-rgb) / calc(0.2 * var(--shadow-strength)));
-    padding: 0.0625rem 0.25rem;
-    border-radius: 0.25rem;
+    /* Solid dark capsule so the metric stays legible over any heatmap color
+       (the yellow band in particular used to bleed through the old
+       translucent background and wash the text out). */
+    background: rgba(24, 24, 27, 0.82);
+    padding: 0.0625rem 0.3125rem;
+    border-radius: 0.3125rem;
     flex-shrink: 0;
   }
 
   .cell-hours-mini.shortfall {
     color: #fca5a5;
-    background: rgba(239, 68, 68, 0.12);
+    /* Keep the same opaque dark base; the shortfall state is conveyed by the
+       red text/value, not by a translucent red wash that the heatmap shows
+       through. */
+    background: rgba(24, 24, 27, 0.82);
   }
 
   .cell-hours-mini.shortfall .cell-unit {
-    color: rgb(var(--fg-rgb) / 0.64);
+    color: rgba(244, 244, 245, 0.7);
   }
 
   .metric-separator {
     margin: 0 0.2rem;
-    color: rgb(var(--fg-rgb) / 0.38);
+    color: rgba(244, 244, 245, 0.5);
   }
 
   .missing-value {
@@ -2581,7 +2601,7 @@
   .cell-unit {
     font-size: 0.625rem;
     margin-left: 0.0625rem;
-    color: rgb(var(--fg-rgb) / 0.7);
+    color: rgba(244, 244, 245, 0.7);
   }
 
   /* "Add logwork" affordance — sits in the cell's top-right corner and only

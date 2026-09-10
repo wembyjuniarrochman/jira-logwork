@@ -47,6 +47,11 @@
     type WorkspaceSettings,
   } from "../stores/settingsStore";
   import {
+    loadAiSettings,
+    DEFAULT_AI_SETTINGS,
+    type AiSettings,
+  } from "../stores/aiSettingsStore";
+  import {
     loadCredentials,
     isCredentialComplete,
     type Credentials,
@@ -708,6 +713,7 @@
   let workspaceSettings = $state<WorkspaceSettings>({
     ...DEFAULT_WORKSPACE_SETTINGS,
   });
+  let aiSettings = $state<AiSettings>({ ...DEFAULT_AI_SETTINGS });
   let credentials = $state<Credentials>({
     baseUrl: "",
     email: "",
@@ -1120,9 +1126,10 @@
    * any individual load fall back to safe defaults.
    */
   async function initWorkspace(): Promise<void> {
-    const [settingsP, isCloudP, credsP, recentsP, autoSchedP, processedP, auditP, breakP] =
+    const [settingsP, aiSettingsP, isCloudP, credsP, recentsP, autoSchedP, processedP, auditP, breakP] =
       await Promise.allSettled([
         loadWorkspaceSettings(),
+        loadAiSettings(),
         loadIsCloud(),
         loadCredentials(),
         loadRecentIssues(email),
@@ -1149,6 +1156,9 @@
       workspaceSettings = settingsP.value;
     } else {
       workspaceSettings = { ...DEFAULT_WORKSPACE_SETTINGS };
+    }
+    if (aiSettingsP.status === "fulfilled") {
+      aiSettings = aiSettingsP.value;
     }
 
     if (isCloudP.status === "fulfilled") {
@@ -1443,6 +1453,10 @@
     settingsDrawerOpen = false;
   }
 
+  function handleAiSettingsSaved(next: AiSettings): void {
+    aiSettings = next;
+  }
+
   function handleCredentialsSaved(
     next: Credentials,
     nextIsCloud: boolean,
@@ -1735,6 +1749,7 @@
         editWorklog={editingWorklog}
         {breakConfig}
         defaultStartTime={workspaceSettings.workdayStart}
+        aiEnabled={aiSettings.enabled}
         localEdit={!!editingWorklog && isDraftId(editingWorklog.id)}
         initialStartedTime={prefillStartedTime}
         onWorklogSubmitted={handleWorklogSubmitted}
@@ -1761,11 +1776,13 @@
 <SettingsDrawer
   open={settingsDrawerOpen}
   initialSettings={workspaceSettings}
+  initialAiSettings={aiSettings}
   initialCredentials={credentials}
   initialIsCloud={isCloud}
   initialAutoSchedule={autoScheduleConfig}
   onClose={handleCloseSettings}
   onSettingsSaved={handleSettingsSaved}
+  onAiSettingsSaved={handleAiSettingsSaved}
   onCredentialsSaved={handleCredentialsSaved}
   onAutoScheduleSaved={handleAutoScheduleSaved}
   onBreakSaved={(next) => (breakConfig = next)}

@@ -24,6 +24,9 @@
     maxlength?: number;
     placeholder?: string;
     ariaInvalid?: boolean;
+    /** AI is opt-in; the parent owns the native API call and key handling. */
+    aiEnabled?: boolean;
+    onImprove?: (note: string) => Promise<string>;
   }
 
   let {
@@ -32,6 +35,8 @@
     maxlength = 500,
     placeholder = "",
     ariaInvalid = false,
+    aiEnabled = false,
+    onImprove = undefined,
   }: Props = $props();
 
   let el = $state<HTMLTextAreaElement | null>(null);
@@ -42,6 +47,23 @@
   let linkText = $state("");
   let linkUrl = $state("");
   let urlInputEl = $state<HTMLInputElement | null>(null);
+  let aiState = $state<"idle" | "loading" | "error">("idle");
+  let aiError = $state("");
+
+  async function improveDescription(): Promise<void> {
+    if (!onImprove || !value.trim() || aiState === "loading") return;
+    aiState = "loading";
+    aiError = "";
+    try {
+      value = await onImprove(value);
+      closeMenu();
+    } catch (err) {
+      aiState = "error";
+      aiError = err instanceof Error ? err.message : String(err);
+      return;
+    }
+    aiState = "idle";
+  }
 
   function toggleMenu(menu: "style" | "element" | "link"): void {
     const next = openMenu === menu ? null : menu;
@@ -318,6 +340,20 @@
 
     <span class="tb-spacer"></span>
 
+    {#if aiEnabled}
+      <button
+        type="button"
+        class="tb-btn tb-ai"
+        disabled={!value.trim() || aiState === "loading"}
+        title={t("editor.aiImprove")}
+        aria-label={t("editor.aiImprove")}
+        onclick={improveDescription}
+      >
+        <span aria-hidden="true">✦</span>
+        <span>{aiState === "loading" ? t("editor.aiImproving") : t("editor.aiImproveShort")}</span>
+      </button>
+    {/if}
+
     <!-- Undo / Redo -->
     <button type="button" class="tb-btn tb-icon" title={t("editor.undo")} aria-label={t("editor.undo")} onclick={undo}>
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -343,6 +379,9 @@
     rows="3"
     aria-invalid={ariaInvalid ? "true" : undefined}
   ></textarea>
+  {#if aiState === "error"}
+    <p class="ai-error" role="alert">{aiError}</p>
+  {/if}
 </div>
 
 <style>
@@ -406,6 +445,18 @@
 
   .tb-btn:focus-visible {
     box-shadow: var(--focus-ring);
+  }
+
+  .tb-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .tb-ai {
+    gap: 0.25rem;
+    color: var(--text-accent);
+    font-size: 0.75rem;
+    font-weight: 600;
   }
 
   .tb-btn.tb-icon {
@@ -595,6 +646,13 @@
 
   .desc-textarea::placeholder {
     color: rgb(var(--fg-rgb) / 0.35);
+  }
+
+  .ai-error {
+    margin: 0 0.75rem 0.625rem;
+    color: var(--text-danger);
+    font-size: 0.75rem;
+    line-height: 1.35;
   }
 
   @media (prefers-reduced-motion: reduce) {

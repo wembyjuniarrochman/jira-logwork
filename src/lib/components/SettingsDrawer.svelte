@@ -39,6 +39,10 @@
     saveWorkspaceSettings,
   } from "../stores/settingsStore";
   import {
+    type AiSettings,
+    saveAiSettings,
+  } from "../stores/aiSettingsStore";
+  import {
     type Credentials,
     saveCredentials,
   } from "../stores/authStore";
@@ -73,11 +77,13 @@
   interface Props {
     open: boolean;
     initialSettings: WorkspaceSettings;
+    initialAiSettings: AiSettings;
     initialCredentials: Credentials;
     initialIsCloud: boolean;
     initialAutoSchedule: AutoScheduleConfig;
     onClose: () => void;
     onSettingsSaved: (next: WorkspaceSettings) => void;
+    onAiSettingsSaved: (next: AiSettings) => void;
     onCredentialsSaved: (next: Credentials, isCloud: boolean) => void;
     onAutoScheduleSaved: (next: AutoScheduleConfig) => void;
     /** Dipanggil setelah jam istirahat disimpan, supaya kalender langsung
@@ -88,11 +94,13 @@
   let {
     open,
     initialSettings,
+    initialAiSettings,
     initialCredentials,
     initialIsCloud,
     initialAutoSchedule,
     onClose,
     onSettingsSaved,
+    onAiSettingsSaved,
     onCredentialsSaved,
     onAutoScheduleSaved,
     onBreakSaved,
@@ -126,6 +134,17 @@
   let targetHours = $state<number>(8);
   let workdayStart = $state("09:00");
   let workdayEnd = $state("18:00");
+
+  // The key itself is intentionally never loaded into this component. It is
+  // saved by native Tauri commands to the OS keychain.
+  let aiEnabled = $state(false);
+  let aiProvider = $state<AiSettings["provider"]>("openai");
+  let aiLanguage = $state<AiSettings["language"]>("auto");
+  let aiApiKey = $state("");
+  let aiHasKey = $state(false);
+  let aiStatus = $state<string | null>(null);
+  let aiStatusError = $state(false);
+  let aiTesting = $state(false);
 
   // Inline validation errors for the Reminder + Target Hours sections.
   let settingsErrors = $state<{ reminderHour?: string; targetHours?: string; workdayHours?: string }>({});
@@ -209,6 +228,13 @@
         targetHours = initialSettings.targetHours;
         workdayStart = initialSettings.workdayStart;
         workdayEnd = initialSettings.workdayEnd;
+        aiEnabled = initialAiSettings.enabled;
+        aiProvider = initialAiSettings.provider;
+        aiLanguage = initialAiSettings.language;
+        aiApiKey = "";
+        aiStatus = null;
+        aiStatusError = false;
+        aiTesting = false;
         autoEnabled = initialAutoSchedule.enabled;
         autoActivities = initialAutoSchedule.activities.map((a) => ({ ...a }));
         autoDays = [...initialAutoSchedule.daysOfWeek];
@@ -232,6 +258,10 @@
       void (async () => {
         autoStartOnLogin = await isAutostartEnabled();
       })();
+      // This must stay untracked. `refreshAiKeyStatus` reads `aiProvider`;
+      // tracking that read would rerun this whole open lifecycle whenever a
+      // user picks another provider and reset it back to the saved value.
+      void untrack(() => refreshAiKeyStatus());
 
       previouslyFocusedEl = (document.activeElement as HTMLElement | null) ?? null;
       mounted = true;
@@ -333,6 +363,90 @@
     onSettingsSaved(next);
   }
 
+  async function saveAiPreferences(): Promise<void> {
+    const key = aiApiKey.trim();
+    if (aiEnabled && !aiHasKey && !key) {
+      aiStatusError = true;
+      aiStatus = "Masukkan API key provider yang dipilih sebelum mengaktifkan bantuan AI.";
+      return;
+    }
+    try {
+      if (key) {
+        await invoke("save_ai_api_key", { provider: aiProvider, apiKey: key });
+        aiHasKey = true;
+        aiApiKey = "";
+      }
+      const next: AiSettings = { enabled: aiEnabled, provider: aiProvider, language: aiLanguage };
+      await saveAiSettings(next);
+      onAiSettingsSaved(next);
+      aiStatusError = false;
+      aiStatus = aiEnabled ? "Bantuan AI aktif untuk deskripsi worklog." : "Bantuan AI dinonaktifkan.";
+    } catch (err) {
+      aiStatusError = true;
+      aiStatus = `Gagal menyimpan pengaturan AI: ${err}`;
+    }
+  }
+
+  async function testAiApiKey(): Promise<void> {
+    const key = aiApiKey.trim();
+    if (!key) {
+      aiStatusError = true;
+      aiStatus = "Masukkan API key terlebih dahulu untuk diuji.";
+      return;
+    }
+    aiTesting = true;
+    aiStatusError = false;
+    aiStatus = null;
+    try {
+      aiStatus = await invoke<string>("test_ai_api_key", { provider: aiProvider, apiKey: key });
+    } catch (err) {
+      aiStatusError = true;
+      aiStatus = `API key tidak dapat digunakan: ${err}`;
+    } finally {
+      aiTesting = false;
+    }
+  }
+
+  async function removeAiKey(): Promise<void> {
+    try {
+      await invoke("clear_ai_api_key", { provider: aiProvider });
+      aiHasKey = false;
+      aiApiKey = "";
+      aiEnabled = false;
+      const next: AiSettings = { enabled: false, provider: aiProvider, language: aiLanguage };
+      await saveAiSettings(next);
+      onAiSettingsSaved(next);
+      aiStatusError = false;
+      aiStatus = "API key dihapus dari penyimpanan key OS.";
+    } catch (err) {
+      aiStatusError = true;
+      aiStatus = `Gagal menghapus API key: ${err}`;
+    }
+  }
+
+  async function refreshAiKeyStatus(): Promise<void> {
+    aiApiKey = "";
+    aiStatus = null;
+    aiStatusError = false;
+    try {
+      aiHasKey = await invoke<boolean>("has_ai_api_key", { provider: aiProvider });
+    } catch (err) {
+      aiHasKey = false;
+      aiStatusError = true;
+      aiStatus = `Tidak dapat memeriksa API key: ${err}`;
+    }
+  }
+
+  function handleAiProviderChange(event: Event): void {
+    const provider = (event.currentTarget as HTMLSelectElement).value;
+    if (provider !== "openai" && provider !== "gemini" && provider !== "claude") return;
+
+    // Commit the provider before the async keychain lookup. This avoids the
+    // native select's change event racing with Svelte's two-way binding.
+    aiProvider = provider;
+    void refreshAiKeyStatus();
+  }
+
   // --- Auto-schedule helpers + persistence ---------------------------------
 
   function toggleAutoDay(day: number): void {
@@ -391,6 +505,7 @@
     await persistBreak();
     await persistAutoSchedule();
     await saveWorkspacePrefs();
+    await saveAiPreferences();
   }
 
   // --- Derived submit-disabled state for the Test & Save button ----------
@@ -651,6 +766,80 @@
           >
             {connStatus === "loading" ? "Testing..." : "Test Connection & Save"}
           </button>
+        </section>
+
+        <!-- ============================================================ -->
+        <!-- Section 2 — AI description helper (optional, personal key)   -->
+        <!-- ============================================================ -->
+        <section class="drawer-section" aria-labelledby="section-ai-description">
+          <h3 id="section-ai-description" class="section-title">{t("settings.aiDescription")}</h3>
+          <p class="section-hint">{t("settings.aiDescriptionHint")}</p>
+
+          <label class="checkbox-label">
+            <input type="checkbox" bind:checked={aiEnabled} />
+            <span>{t("settings.aiEnable")}</span>
+          </label>
+
+          <fieldset class="auto-fieldset" disabled={!aiEnabled}>
+            <div class="form-field">
+              <label for="settings-ai-provider">{t("settings.aiProvider")}</label>
+              <select id="settings-ai-provider" value={aiProvider} onchange={handleAiProviderChange}>
+                <option value="openai">{t("settings.aiProviderOpenai")}</option>
+                <option value="gemini">{t("settings.aiProviderGemini")}</option>
+                <option value="claude">{t("settings.aiProviderClaude")}</option>
+              </select>
+              <span class="field-help">{t("settings.aiProviderHint")}</span>
+            </div>
+            <div class="form-field">
+              <label for="settings-ai-language">{t("settings.aiLanguage")}</label>
+              <select id="settings-ai-language" bind:value={aiLanguage}>
+                <option value="auto">{t("settings.aiLanguageAuto")}</option>
+                <option value="id">{t("settings.aiLanguageId")}</option>
+                <option value="en">{t("settings.aiLanguageEn")}</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label for="settings-ai-api-key">{t("settings.aiApiKey")}</label>
+              <input
+                id="settings-ai-api-key"
+                type="password"
+                bind:value={aiApiKey}
+                placeholder={aiHasKey ? t("settings.aiApiKeySaved") : aiProvider === "openai" ? "sk-..." : aiProvider === "gemini" ? "AIza..." : "sk-ant-..."}
+                autocomplete="off"
+              />
+            </div>
+          </fieldset>
+
+          <div class="ai-actions">
+            <button
+              type="button"
+              class="secondary-btn ai-save-settings"
+              disabled={!aiEnabled}
+              onclick={saveAiPreferences}
+            >
+              {t("settings.aiSave")}
+            </button>
+            <button
+              type="button"
+              class="secondary-btn ai-test-key"
+              disabled={!aiEnabled || !aiApiKey.trim() || aiTesting}
+              onclick={testAiApiKey}
+            >
+              {aiTesting ? t("settings.aiTesting") : t("settings.aiTest")}
+            </button>
+          </div>
+          <p class="field-help">{t("settings.aiTestHint")}</p>
+
+          {#if aiHasKey}
+            <button type="button" class="secondary-btn ai-remove-key" onclick={removeAiKey}>
+              {t("settings.aiRemoveKey")}
+            </button>
+          {/if}
+          {#if aiStatus}
+            <p class:field-error={aiStatusError} class="section-hint" role={aiStatusError ? "alert" : "status"}>
+              {aiStatus}
+            </p>
+          {/if}
         </section>
 
         <!-- ============================================================ -->
@@ -1489,6 +1678,34 @@
     font-size: 0.75rem;
     line-height: 1.45;
     color: rgb(var(--fg-rgb) / 0.5);
+  }
+
+  .field-help {
+    margin-top: -0.5rem;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: rgb(var(--fg-rgb) / 0.5);
+  }
+
+  .ai-remove-key {
+    align-self: flex-start;
+    padding: 0.375rem 0.625rem;
+    font-size: 0.75rem;
+    color: var(--text-danger);
+  }
+
+  .ai-save-settings {
+    white-space: nowrap;
+  }
+
+  .ai-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.625rem;
+  }
+
+  .ai-test-key {
+    white-space: nowrap;
   }
 
   .auto-fieldset {

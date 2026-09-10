@@ -3,7 +3,7 @@ mod activitywatch;
 
 use jira::*;
 use reqwest::Client;
-use serde_json::json;
+use serde_json::{json, Value};
 use futures::stream::StreamExt;
 use std::sync::Mutex;
 use tauri::{
@@ -46,6 +46,314 @@ fn http_client() -> &'static Client {
             .build()
             .unwrap_or_else(|_| Client::new())
     })
+}
+
+// --- Optional personal AI key ---------------------------------------------
+// The renderer never receives this value; it is held by the native OS
+// credential store through the `keyring` crate.
+const AI_KEYCHAIN_SERVICE: &str = "com.jira-logwork.app";
+
+/// Keeps a just-saved key available for the lifetime of this app process.
+/// The OS keychain remains the persistent source of truth; this avoids a
+/// platform-keychain race where a write succeeds but an immediate read from a
+/// second webview reports `NoEntry`.
+fn ai_key_cache() -> &'static Mutex<std::collections::HashMap<String, String>> {
+    static CACHE: OnceLock<Mutex<std::collections::HashMap<String, String>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+fn ai_provider(provider: &str) -> Result<&str, String> {
+    match provider {
+        "openai" | "gemini" | "claude" => Ok(provider),
+        _ => Err("Provider AI tidak didukung. Pilih OpenAI, Gemini, atau Claude.".to_string()),
+    }
+}
+
+fn ai_key_entry(provider: &str) -> Result<keyring::Entry, String> {
+    let provider = ai_provider(provider)?;
+    let account = format!("{provider}-description-helper");
+    keyring::Entry::new(AI_KEYCHAIN_SERVICE, &account)
+        .map_err(|err| format!("Tidak dapat membuka penyimpanan key OS: {err}"))
+}
+
+fn read_ai_api_key(provider: &str) -> Result<String, String> {
+    let provider = ai_provider(provider)?;
+    let key = match ai_key_entry(provider)?.get_password() {
+        Ok(key) => {
+            if let Ok(mut cache) = ai_key_cache().lock() {
+                cache.insert(provider.to_string(), key.clone());
+            }
+            key
+        }
+        Err(keyring::Error::NoEntry) => {
+            if let Ok(cache) = ai_key_cache().lock() {
+                if let Some(key) = cache.get(provider).filter(|key| !key.trim().is_empty()) {
+                    return Ok(key.clone());
+                }
+            }
+            return Err(format!(
+                "API key untuk {} belum disimpan. Tambahkan melalui Pengaturan.",
+                match provider {
+                    "openai" => "OpenAI",
+                    "gemini" => "Google Gemini",
+                    "claude" => "Anthropic Claude",
+                    _ => unreachable!("ai_provider validates all provider values"),
+                }
+            ));
+        }
+        Err(err) => {
+            return Err(format!(
+                "API key {} tidak dapat dibaca dari penyimpanan key OS: {err}",
+                provider
+            ));
+        }
+    };
+    if key.trim().is_empty() {
+        return Err(format!(
+            "API key untuk {} belum disimpan. Tambahkan melalui Pengaturan.",
+            provider
+        ));
+    }
+    Ok(key)
+}
+
+#[tauri::command]
+fn save_ai_api_key(provider: String, api_key: String) -> Result<(), String> {
+    let provider = ai_provider(&provider)?;
+    let key = api_key.trim();
+    if key.is_empty() {
+        return Err("API key tidak boleh kosong.".to_string());
+    }
+    ai_key_entry(provider)?
+        .set_password(key)
+        .map_err(|err| format!("Gagal menyimpan API key ke penyimpanan key OS: {err}"))?;
+    if let Ok(mut cache) = ai_key_cache().lock() {
+        cache.insert(provider.to_string(), key.to_string());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn has_ai_api_key(provider: String) -> Result<bool, String> {
+    let provider = ai_provider(&provider)?;
+    if let Ok(cache) = ai_key_cache().lock() {
+        if cache.get(provider).is_some_and(|key| !key.trim().is_empty()) {
+            return Ok(true);
+        }
+    }
+    match ai_key_entry(provider)?.get_password() {
+        Ok(key) => {
+            if !key.trim().is_empty() {
+                if let Ok(mut cache) = ai_key_cache().lock() {
+                    cache.insert(provider.to_string(), key);
+                }
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+        Err(keyring::Error::NoEntry) => Ok(false),
+        Err(err) => Err(format!("Tidak dapat membaca API key dari penyimpanan key OS: {err}")),
+    }
+}
+
+#[tauri::command]
+fn clear_ai_api_key(provider: String) -> Result<(), String> {
+    let provider = ai_provider(&provider)?;
+    match ai_key_entry(provider)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(err) => Err(format!("Gagal menghapus API key: {err}")),
+    }?;
+    if let Ok(mut cache) = ai_key_cache().lock() {
+        cache.remove(provider);
+    }
+    Ok(())
+}
+
+fn ai_instructions(language: &str) -> String {
+    let output_language = match language {
+        "id" => "Bahasa Indonesia",
+        "en" => "English",
+        _ => "bahasa yang sama dengan catatan pengguna",
+    };
+    format!(
+        "Rewrite this short worklog note into one concise, professional description in {output_language}. \
+         Keep only facts stated in the note; never invent work, results, tools, or scope. \
+         Return only the final description, with no title, explanation, or markdown."
+    )
+}
+
+async fn read_ai_response(response: reqwest::Response) -> Result<Value, String> {
+    let status = response.status();
+    let raw_body = response
+        .text()
+        .await
+        .map_err(|err| format!("Respons AI tidak dapat dibaca: {err}"))?;
+    let body: Value = serde_json::from_str(&raw_body)
+        .map_err(|err| format!("Respons AI tidak dapat dibaca: {err}"))?;
+    if !status.is_success() {
+        let message = body.pointer("/error/message")
+            .and_then(Value::as_str)
+            .or_else(|| body.get("message").and_then(Value::as_str))
+            .or_else(|| body.get("error").and_then(Value::as_str))
+            .or_else(|| (!raw_body.trim().is_empty()).then_some(raw_body.as_str()))
+            .unwrap_or("Permintaan ditolak.");
+        return Err(format!("AI mengembalikan HTTP {status}: {message}"));
+    }
+    Ok(body)
+}
+
+fn finish_ai_text(text: Option<&str>) -> Result<String, String> {
+    let text = text
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| "AI tidak menghasilkan deskripsi yang dapat digunakan.".to_string())?;
+    if text.chars().count() > 500 {
+        return Err("Hasil AI melebihi batas 500 karakter. Coba catatan yang lebih ringkas.".to_string());
+    }
+    Ok(text.to_string())
+}
+
+#[tauri::command]
+async fn improve_work_description(note: String, language: String, provider: String) -> Result<String, String> {
+    let note = note.trim();
+    if note.is_empty() {
+        return Err("Tulis catatan kerja terlebih dahulu.".to_string());
+    }
+    if note.chars().count() > 500 {
+        return Err("Deskripsi maksimal 500 karakter.".to_string());
+    }
+
+    let provider = ai_provider(&provider)?;
+    let api_key = read_ai_api_key(provider)?;
+    let instructions = ai_instructions(&language);
+
+    match provider {
+        "openai" => {
+            let body = read_ai_response(http_client()
+                .post("https://api.openai.com/v1/responses")
+                .bearer_auth(api_key)
+                .json(&json!({
+                    "model": "gpt-5-mini",
+                    "store": false,
+                    "instructions": instructions,
+                    "input": note,
+                    "max_output_tokens": 180
+                }))
+                .send()
+                .await
+                .map_err(|err| format!("Permintaan ke OpenAI gagal: {err}"))?).await?;
+            finish_ai_text(body.get("output").and_then(Value::as_array).into_iter().flatten()
+                .filter_map(|item| item.get("content").and_then(Value::as_array)).flatten()
+                .find_map(|part| (part.get("type").and_then(Value::as_str) == Some("output_text"))
+                    .then(|| part.get("text").and_then(Value::as_str)).flatten()))
+        }
+        "gemini" => {
+            let body = read_ai_response(http_client()
+                .post("https://generativelanguage.googleapis.com/v1beta/interactions")
+                .header("x-goog-api-key", api_key)
+                .json(&json!({
+                    "model": "gemini-3.5-flash-lite",
+                    "store": false,
+                    "system_instruction": instructions,
+                    "input": [{
+                        "type": "user_input",
+                        "content": note
+                    }]
+                }))
+                .timeout(Duration::from_secs(90))
+                .send()
+                .await
+                .map_err(|err| format!("Permintaan ke Gemini gagal: {err:#}"))?).await?;
+            finish_ai_text(body.get("steps").and_then(Value::as_array).into_iter().flatten()
+                .filter(|step| step.get("type").and_then(Value::as_str) == Some("model_output"))
+                .filter_map(|step| step.get("content").and_then(Value::as_array)).flatten()
+                .find_map(|part| (part.get("type").and_then(Value::as_str) == Some("text"))
+                    .then(|| part.get("text").and_then(Value::as_str)).flatten()))
+        }
+        "claude" => {
+            let body = read_ai_response(http_client()
+                .post("https://api.anthropic.com/v1/messages")
+                .header("x-api-key", api_key)
+                .header("anthropic-version", "2023-06-01")
+                .json(&json!({
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 180,
+                    "system": instructions,
+                    "messages": [{ "role": "user", "content": note }]
+                }))
+                .send()
+                .await
+                .map_err(|err| format!("Permintaan ke Claude gagal: {err}"))?).await?;
+            finish_ai_text(body.get("content").and_then(Value::as_array).into_iter().flatten()
+                .find_map(|part| (part.get("type").and_then(Value::as_str) == Some("text"))
+                    .then(|| part.get("text").and_then(Value::as_str)).flatten()))
+        }
+        _ => unreachable!("ai_provider validates all provider values"),
+    }
+}
+
+/// Validate an API key against the exact provider endpoint and model used by
+/// the description helper. This command never writes the supplied key.
+#[tauri::command]
+async fn test_ai_api_key(provider: String, api_key: String) -> Result<String, String> {
+    let provider = ai_provider(&provider)?;
+    let api_key = api_key.trim();
+    if api_key.is_empty() {
+        return Err("Masukkan API key yang ingin diuji.".to_string());
+    }
+
+    let response = match provider {
+        "openai" => http_client()
+            .post("https://api.openai.com/v1/responses")
+            .bearer_auth(api_key)
+            .json(&json!({
+                "model": "gpt-5-mini",
+                "store": false,
+                "input": "Reply only: OK.",
+                "max_output_tokens": 16
+            }))
+            .send()
+            .await
+            .map_err(|err| format!("Permintaan ke OpenAI gagal: {err}"))?,
+        "gemini" => http_client()
+            .post("https://generativelanguage.googleapis.com/v1beta/interactions")
+            .header("x-goog-api-key", api_key)
+            .json(&json!({
+                "model": "gemini-3.5-flash-lite",
+                "store": false,
+                "input": [{
+                    "type": "user_input",
+                    "content": "Reply only: OK."
+                }]
+            }))
+            .timeout(Duration::from_secs(90))
+            .send()
+            .await
+            .map_err(|err| format!("Permintaan ke Gemini gagal: {err:#}"))?,
+        "claude" => http_client()
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01")
+            .json(&json!({
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 16,
+                "messages": [{ "role": "user", "content": "Reply only: OK." }]
+            }))
+            .send()
+            .await
+            .map_err(|err| format!("Permintaan ke Claude gagal: {err}"))?,
+        _ => unreachable!("ai_provider validates all provider values"),
+    };
+
+    read_ai_response(response).await?;
+    Ok(match provider {
+        "openai" => "Koneksi OpenAI berhasil. API key dapat digunakan.",
+        "gemini" => "Koneksi Google Gemini berhasil. API key dapat digunakan.",
+        "claude" => "Koneksi Anthropic Claude berhasil. API key dapat digunakan.",
+        _ => unreachable!("ai_provider validates all provider values"),
+    }
+    .to_string())
 }
 
 /// Persist before installation: Windows may exit before JavaScript resumes.
@@ -1230,7 +1538,9 @@ pub fn run() {
             create_issue, get_assignable_users, get_create_meta,
             update_worklog, delete_worklog,
             get_timer_state, start_timer, stop_timer, reset_timer, open_quicklog,
-            update_tray_tooltip, prepare_update_restart, take_update_success
+            update_tray_tooltip, prepare_update_restart, take_update_success,
+            save_ai_api_key, has_ai_api_key, clear_ai_api_key, improve_work_description,
+            test_ai_api_key
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

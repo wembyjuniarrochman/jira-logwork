@@ -8,6 +8,7 @@ import {
   normalizeMinutes,
   formatDurationLong,
   formatDecimalHours,
+  formatDecimalDays,
   HOURS_PER_DAY,
   MAX_MINUTES,
   PRESET_MINUTES,
@@ -205,5 +206,18 @@ describe("formatDecimalHours", () => {
     expect(formatDecimalHours(0)).toBe("");
     expect(formatDecimalHours(-10)).toBe("");
     expect(formatDecimalHours(Number.NaN)).toBe("");
+  });
+});
+
+describe("formatDecimalDays", () => {
+  it("menggunakan hari kerja 8 jam dan mempertahankan ketelitian 5 menit", () => {
+    expect(formatDecimalDays(90)).toBe("0.1875d");
+    expect(formatDecimalDays(480)).toBe("1d");
+    expect(formatDecimalDays(5)).toBe("0.0104d");
+  });
+
+  it("durasi nol menghasilkan string kosong", () => {
+    expect(formatDecimalDays(0)).toBe("");
+    expect(formatDecimalDays(Number.NaN)).toBe("");
   });
 });
