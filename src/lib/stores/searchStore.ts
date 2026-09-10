@@ -71,6 +71,22 @@ export function mergeAndDedupeResults(lists: SearchResult[][]): SearchResult[] {
   return out;
 }
 
+/**
+ * When a search returns an Epic alongside its matching tasks, render the
+ * Epic as the single root. Its children remain available through the existing
+ * expandable tree, so a reference shared by many tasks does not repeat the
+ * same hierarchy as a flat result list.
+ *
+ * If no Epic matches, preserve every result: a task-only search must still
+ * be selectable.
+ */
+export function preferEpicRoots(results: SearchResult[]): SearchResult[] {
+  const epics = results.filter(
+    (result) => (result.issueType ?? "").trim().toLowerCase() === "epic",
+  );
+  return epics.length > 0 ? epics : results;
+}
+
 // --- Response parsing ---
 
 /**

@@ -31,6 +31,7 @@
     fetchAssignableUsers,
     createIssue,
     findSubtaskIssueTypeName,
+    preferEpicRoots,
     projectKeyFromIssueKey,
     type SearchResult,
     type ProjectCreateMeta,
@@ -511,8 +512,9 @@
       );
       // Drop stale responses if the user has typed again in the meantime.
       if (myId !== latestRequestId) return;
-      results = found;
-      void refreshParentsWithChildren(found);
+      const roots = preferEpicRoots(found);
+      results = roots;
+      void refreshParentsWithChildren(roots);
     } catch (err) {
       if (myId !== latestRequestId) return;
       // Retain the user's query (R7.8) and surface an inline error.
