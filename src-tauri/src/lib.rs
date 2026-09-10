@@ -305,6 +305,37 @@ fn escape_jql_string(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+/// Jira does not index punctuation such as `;`, `-`, or quotes for text
+/// searches. Keep track of queries that need a literal summary comparison
+/// after Jira has returned candidate issues.
+fn needs_literal_summary_filter(query: &str) -> bool {
+    !is_issue_key(query)
+        && query
+            .chars()
+            .any(|ch| !ch.is_alphanumeric() && !ch.is_whitespace())
+}
+
+/// A punctuation-only query has no indexed word Jira can use to narrow the
+/// request. We therefore fetch recent summaries and filter them locally.
+fn is_punctuation_only_query(query: &str) -> bool {
+    !query.chars().any(|ch| ch.is_alphanumeric())
+}
+
+/// Retain only issues whose summary contains the user's original query.
+/// Jira's text index discards punctuation, while this comparison preserves it.
+fn filter_issues_by_literal_summary(response: &str, query: &str) -> Result<String, String> {
+    let needle = query.to_lowercase();
+    let mut payload: serde_json::Value = serde_json::from_str(response).map_err(|e| e.to_string())?;
+    if let Some(issues) = payload.get_mut("issues").and_then(serde_json::Value::as_array_mut) {
+        issues.retain(|issue| {
+            issue["fields"]["summary"]
+                .as_str()
+                .is_some_and(|summary| summary.to_lowercase().contains(&needle))
+        });
+    }
+    serde_json::to_string(&payload).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn search_issues(base_url: String, email: String, api_token: String, is_cloud: bool, project_key: String, query: String) -> Result<String, String> {
     let config = JiraConfig { base_url, email, api_token, is_cloud };
@@ -321,11 +352,18 @@ async fn search_issues(base_url: String, email: String, api_token: String, is_cl
         format!("project = {} AND ", project_key)
     };
 
+    let requires_literal_filter = needs_literal_summary_filter(query);
+    let punctuation_only = requires_literal_filter && is_punctuation_only_query(query);
+
     let jql = if query.is_empty() {
         match project_key.trim().is_empty() {
             true => "ORDER BY updated DESC".to_string(),
             false => format!("project = {} ORDER BY updated DESC", project_key),
         }
+    } else if punctuation_only {
+        // Special characters alone are absent from Jira's text index. Fetch
+        // a broader recent set and apply the literal comparison below.
+        format!("{}summary IS NOT EMPTY ORDER BY updated DESC", project_clause)
     } else {
         // Kotak ini menjanjikan "issue key atau summary", tapi `summary ~`
         // tidak pernah mencocokkan key. Saat inputnya berbentuk key utuh
@@ -348,8 +386,11 @@ async fn search_issues(base_url: String, email: String, api_token: String, is_cl
             project_clause, text_query, key_clause
         )
     };
-    let url = format!("{}/rest/api/3/search/jql?jql={}&maxResults=50&fields=summary,issuetype,subtasks",
-        config.base_url.trim_end_matches('/'), urlencoding::encode(&jql));
+    // A punctuation-only query cannot be narrowed by Jira's index. Request a
+    // larger candidate set so a single `;` can still find matching summaries.
+    let max_results = if punctuation_only { 1000 } else { 50 };
+    let url = format!("{}/rest/api/3/search/jql?jql={}&maxResults={}&fields=summary,issuetype,subtasks",
+        config.base_url.trim_end_matches('/'), urlencoding::encode(&jql), max_results);
     let resp = client.get(&url)
         .header("Authorization", config.auth_header())
         .header("Content-Type", "application/json")
@@ -358,7 +399,11 @@ async fn search_issues(base_url: String, email: String, api_token: String, is_cl
         return Err(format!("HTTP {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
     }
     let text = resp.text().await.map_err(|e| e.to_string())?;
-    Ok(text)
+    if requires_literal_filter {
+        filter_issues_by_literal_summary(&text, query)
+    } else {
+        Ok(text)
+    }
 }
 
 #[tauri::command]
@@ -1125,7 +1170,10 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{escape_jira_text_search, escape_jql_string};
+    use super::{
+        escape_jira_text_search, escape_jql_string, filter_issues_by_literal_summary,
+        is_punctuation_only_query, needs_literal_summary_filter,
+    };
 
     #[test]
     fn escapes_jira_text_operators_but_keeps_regular_punctuation_searchable() {
@@ -1145,5 +1193,29 @@ mod tests {
             escape_jql_string(&text_query),
             r#"OPS\\-12; \\\"owner's\\\"*"#,
         );
+    }
+
+    #[test]
+    fn marks_special_character_queries_for_literal_matching() {
+        assert!(needs_literal_summary_filter("Daily; sync"));
+        assert!(needs_literal_summary_filter(";"));
+        assert!(!needs_literal_summary_filter("Daily sync"));
+        assert!(!needs_literal_summary_filter("BTPM-128"));
+        assert!(is_punctuation_only_query(";"));
+        assert!(!is_punctuation_only_query("Daily;"));
+    }
+
+    #[test]
+    fn filters_punctuation_only_searches_against_summary_text() {
+        let response = r#"{
+          "issues": [
+            {"key":"BTPM-1","fields":{"summary":"Planning; review"}},
+            {"key":"BTPM-2","fields":{"summary":"Planning review"}}
+          ]
+        }"#;
+        let filtered = filter_issues_by_literal_summary(response, ";").unwrap();
+        let payload: serde_json::Value = serde_json::from_str(&filtered).unwrap();
+        assert_eq!(payload["issues"].as_array().unwrap().len(), 1);
+        assert_eq!(payload["issues"][0]["key"], "BTPM-1");
     }
 }
