@@ -87,6 +87,21 @@ export function preferEpicRoots(results: SearchResult[]): SearchResult[] {
   return epics.length > 0 ? epics : results;
 }
 
+/**
+ * Jira's global text index does not reliably return punctuation and numeric
+ * references embedded in summaries. For these queries, search each project
+ * rather than relying on one globally-sorted candidate page.
+ */
+export function requiresProjectFanout(query: string): boolean {
+  const text = query.trim();
+  if (!text) return false;
+  const hasSpecialCharacter = [...text].some(
+    (character) => !/[\p{L}\p{N}\s]/u.test(character),
+  );
+  const numberOnly = /^[0-9]+$/.test(text);
+  return hasSpecialCharacter || numberOnly;
+}
+
 // --- Response parsing ---
 
 /**
@@ -175,6 +190,35 @@ async function searchByQuery(
       return [];
     }
   }
+
+  // For references such as `1460` or `[IRQ-1460]`, the backend performs a
+  // literal summary match. A global Jira request is sorted across every
+  // project and can omit an older match, so explicitly fan out per project.
+  if (requiresProjectFanout(query)) {
+    let projects: JiraProject[];
+    try {
+      projects = await callGetProjects(ctx);
+    } catch {
+      // Keep the standard global request as a best-effort fallback when the
+      // project list is unavailable.
+      try {
+        return await callSearchIssues(ctx, "", query);
+      } catch {
+        return [];
+      }
+    }
+    const perProject = await Promise.all(
+      projects.map(async (project) => {
+        try {
+          return await callSearchIssues(ctx, project.key, query);
+        } catch {
+          return [] as SearchResult[];
+        }
+      }),
+    );
+    return mergeAndDedupeResults(perProject);
+  }
+
   try {
     return await callSearchIssues(ctx, "", query);
   } catch {
@@ -222,7 +266,10 @@ export async function searchAll(
   const textResults = await searchByQuery(ctx, query, opts.projectKey);
   if (isStale()) return [];
 
-  if (looksLikeIssueKey(query)) {
+  // A project fan-out already normalizes and resolves exact keys in the
+  // backend. Avoid dispatching the same all-project search twice for a key
+  // that can also appear as a summary reference (for example `IRQ-1460`).
+  if (looksLikeIssueKey(query) && !requiresProjectFanout(query)) {
     const exactKey = query.toUpperCase();
     const exactResults = await searchByQuery(ctx, exactKey, opts.projectKey);
     if (isStale()) return [];

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { preferEpicRoots, type SearchResult } from "./searchStore";
+import {
+  preferEpicRoots,
+  requiresProjectFanout,
+  type SearchResult,
+} from "./searchStore";
 
 describe("preferEpicRoots", () => {
   it("uses matching Epics as the only search roots", () => {
@@ -19,5 +23,18 @@ describe("preferEpicRoots", () => {
     ];
 
     expect(preferEpicRoots(rows)).toEqual(rows);
+  });
+});
+
+describe("requiresProjectFanout", () => {
+  it("fans out numeric and punctuation reference searches", () => {
+    expect(requiresProjectFanout("1460")).toBe(true);
+    expect(requiresProjectFanout("[IRQ-1460]")).toBe(true);
+    expect(requiresProjectFanout("Daily; sync")).toBe(true);
+  });
+
+  it("keeps normal text searches on the global Jira endpoint", () => {
+    expect(requiresProjectFanout("daily sync")).toBe(false);
+    expect(requiresProjectFanout("   ")).toBe(false);
   });
 });
