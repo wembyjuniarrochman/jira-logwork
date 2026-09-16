@@ -22,6 +22,7 @@
 
   import { t } from "../stores/i18n.svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
 
   import AnimatedBackground from "../components/AnimatedBackground.svelte";
   import WorkspaceHeader from "../components/WorkspaceHeader.svelte";
@@ -1277,6 +1278,47 @@
   function handleCloseAuditLog(): void {
     auditLogOpen = false;
   }
+
+  /**
+   * Native tray menu actions arrive here after the main window has been made
+   * visible by Rust. Keep the tray as navigation, not a second worklog form.
+   */
+  function handleTrayNavigation(destination: string): void {
+    switch (destination) {
+      case "settings":
+      case "schedule":
+        auditLogOpen = false;
+        settingsDrawerOpen = true;
+        break;
+      case "audit":
+        settingsDrawerOpen = false;
+        auditLogOpen = true;
+        break;
+      case "calendar":
+        settingsDrawerOpen = false;
+        auditLogOpen = false;
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        break;
+      case "dashboard":
+      default:
+        settingsDrawerOpen = false;
+        auditLogOpen = false;
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        break;
+    }
+  }
+
+  $effect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<string>("tray:navigate", (event) => {
+      handleTrayNavigation(event.payload);
+    }).then((stop) => {
+      unlisten = stop;
+    }).catch(() => {
+      // Browser-based development has no native event bridge.
+    });
+    return () => unlisten?.();
+  });
 
   async function handleClearAuditLog(): Promise<void> {
     auditLog = [];

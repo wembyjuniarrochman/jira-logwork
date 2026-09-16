@@ -15,10 +15,13 @@ Fitur sinkronisasi yang andal sudah menjadi fokus pengembangan saat ini. Ide pen
 - Opsi melewati hari libur dan cuti.
 - Status yang jelas: Draf, Mengirim, Terkirim, atau Gagal.
 
-## Penyimpanan token yang lebih aman
+## Penyimpanan token Jira yang lebih aman
 
-- Simpan API token melalui Keychain macOS dan Credential Manager Windows.
-- Migrasikan token yang masih tersimpan di file pengaturan biasa.
+- [ ] Simpan API token Jira melalui Keychain macOS dan Credential Manager Windows.
+- [ ] Migrasikan token Jira yang masih tersimpan di file pengaturan biasa.
+
+Catatan: API key AI sudah disimpan melalui OS keychain. Item roadmap ini hanya
+menyangkut API token Jira.
 
 ## Riwayat dan pemulihan perubahan
 

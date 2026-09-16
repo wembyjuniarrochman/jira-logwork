@@ -9,10 +9,9 @@ use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager, WindowEvent, WebviewUrl, WebviewWindowBuilder,
+    Emitter, Manager, WindowEvent,
 };
 use chrono::{Local, Timelike};
-use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -393,49 +392,6 @@ fn take_update_success(app: tauri::AppHandle) -> Result<Option<String>, String> 
     Ok(Some(version))
 }
 
-// --- Timer State (shared between tray menu and windows) ---
-
-/// Extract (x, y, width, height) from a Tauri Rect regardless of Physical/Logical variant.
-fn extract_rect(rect: &tauri::Rect) -> (f64, f64, f64, f64) {
-    let (x, y) = match &rect.position {
-        tauri::Position::Physical(p) => (p.x as f64, p.y as f64),
-        tauri::Position::Logical(p) => (p.x, p.y),
-    };
-    let (w, h) = match &rect.size {
-        tauri::Size::Physical(s) => (s.width as f64, s.height as f64),
-        tauri::Size::Logical(s) => (s.width, s.height),
-    };
-    (x, y, w, h)
-}
-
-/// Last known tray icon position, updated on every tray event.
-#[derive(Debug, Clone, Default)]
-pub struct TrayPosition {
-    pub x: f64,
-    pub y: f64,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct TrayTimerState {
-    pub issue_key: Option<String>,
-    pub summary: Option<String>,
-    pub start_time: Option<u64>, // epoch millis when started
-    pub accumulated_seconds: f64,
-    pub running: bool,
-}
-
-impl Default for TrayTimerState {
-    fn default() -> Self {
-        Self {
-            issue_key: None,
-            summary: None,
-            start_time: None,
-            accumulated_seconds: 0.0,
-            running: false,
-        }
-    }
-}
-
 /// Bring the main window back to the foreground (from the tray / minimized).
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -445,89 +401,23 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
-/// Open or focus the Quick Log mini window near the tray icon.
-fn open_quicklog_window(app: &tauri::AppHandle) {
-    open_quicklog_window_at(app, None);
-}
-
-/// Open or focus the Quick Log mini window, optionally positioned near coordinates.
-fn open_quicklog_window_at(app: &tauri::AppHandle, tray_position: Option<(f64, f64)>) {
-    if let Some(w) = app.get_webview_window("quicklog") {
-        let _ = w.show();
-        let _ = w.set_focus();
-        return;
-    }
-
-    let win_width = 380.0;
-    let win_height = 520.0;
-
-    let mut builder = WebviewWindowBuilder::new(app, "quicklog", WebviewUrl::App("quicklog.html".into()))
-        .title("Quick Log")
-        .inner_size(win_width, win_height)
-        .resizable(false)
-        .maximizable(false)
-        .minimizable(false)
-        .always_on_top(true)
-        .visible(true)
-        .decorations(true);
-
-    if let Some((x, y)) = tray_position {
-        // Position window so its top-center aligns with the tray icon center,
-        // just below the menu bar (y is already the bottom of the tray icon area)
-        let win_x = (x - win_width / 2.0).max(0.0);
-        let win_y = y;
-        builder = builder.position(win_x, win_y);
-    } else {
-        builder = builder.center();
-    }
-
-    let _ = builder.build();
-}
-
-// --- Tauri commands for timer ---
-
-#[tauri::command]
-fn get_timer_state(state: tauri::State<'_, Mutex<TrayTimerState>>) -> TrayTimerState {
-    state.lock().unwrap().clone()
-}
-
-#[tauri::command]
-fn start_timer(state: tauri::State<'_, Mutex<TrayTimerState>>, issue_key: String, summary: String) -> TrayTimerState {
-    let mut s = state.lock().unwrap();
-    s.issue_key = Some(issue_key);
-    s.summary = Some(summary);
-    s.start_time = Some(std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64);
-    s.running = true;
-    s.clone()
-}
-
-#[tauri::command]
-fn stop_timer(state: tauri::State<'_, Mutex<TrayTimerState>>) -> TrayTimerState {
-    let mut s = state.lock().unwrap();
-    if s.running {
-        if let Some(start) = s.start_time {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
-            let elapsed = (now - start) as f64 / 1000.0;
-            s.accumulated_seconds += elapsed;
+/// Toggle the primary application window from a left click on the tray icon.
+fn toggle_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.hide();
+        } else {
+            let _ = window.show();
+            let _ = window.unminimize();
+            let _ = window.set_focus();
         }
-        s.start_time = None;
-        s.running = false;
     }
-    s.clone()
 }
 
-#[tauri::command]
-fn reset_timer(state: tauri::State<'_, Mutex<TrayTimerState>>) -> TrayTimerState {
-    let mut s = state.lock().unwrap();
-    *s = TrayTimerState::default();
-    s.clone()
-}
-
-#[tauri::command]
-fn open_quicklog(app: tauri::AppHandle) {
-    open_quicklog_window(&app);
+/// Bring the dashboard forward and request that the renderer show a feature.
+fn open_tray_destination(app: &tauri::AppHandle, destination: &str) {
+    show_main_window(app);
+    let _ = app.emit("tray:navigate", destination);
 }
 
 #[tauri::command]
@@ -1325,14 +1215,6 @@ async fn delete_worklog(
     Ok("Worklog deleted".to_string())
 }
 
-#[tauri::command]
-fn update_tray_tooltip(app: tauri::AppHandle, status: String) -> Result<(), String> {
-    if let Some(tray) = app.tray_by_id("main-tray") {
-        tray.set_tooltip(Some(&status)).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
@@ -1346,21 +1228,49 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
         ))
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .manage(Mutex::new(TrayTimerState::default()))
-        .manage(Mutex::new(TrayPosition::default()))
         .setup(|app| {
-            // System tray so the app can keep running (and auto-log worklogs)
-            // in the background while the main window is closed.
-            let quicklog_i =
-                MenuItem::with_id(app, "quicklog", "⚡ Quick Log", true, None::<&str>)?;
-            let timer_i =
-                MenuItem::with_id(app, "timer", "⏱ Start Timer", true, None::<&str>)?;
+            // The tray is a compact controller for the primary workspace. Complex
+            // worklog forms stay in the main window; the menu only exposes
+            // destinations that can be understood at a glance.
+            let status_i = MenuItem::with_id(
+                app,
+                "status",
+                "JIRA Logwork siap digunakan",
+                false,
+                None::<&str>,
+            )?;
             let sep1 = PredefinedMenuItem::separator(app)?;
-            let show_i =
-                MenuItem::with_id(app, "show", "Buka JIRA Logwork", true, None::<&str>)?;
+            let dashboard_i =
+                MenuItem::with_id(app, "dashboard", "Buka Dashboard", true, None::<&str>)?;
+            let calendar_i =
+                MenuItem::with_id(app, "calendar", "Kalender Worklog", true, None::<&str>)?;
+            let schedule_i = MenuItem::with_id(
+                app,
+                "schedule",
+                "Jadwal & Auto-log",
+                true,
+                None::<&str>,
+            )?;
+            let audit_i =
+                MenuItem::with_id(app, "audit", "Riwayat / Audit Log", true, None::<&str>)?;
+            let settings_i =
+                MenuItem::with_id(app, "settings", "Pengaturan…", true, None::<&str>)?;
+            let sep2 = PredefinedMenuItem::separator(app)?;
             let quit_i = MenuItem::with_id(app, "quit", "Keluar", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&quicklog_i, &timer_i, &sep1, &show_i, &quit_i])?;
+            let menu = Menu::with_items(
+                app,
+                &[
+                    &status_i,
+                    &sep1,
+                    &dashboard_i,
+                    &calendar_i,
+                    &schedule_i,
+                    &audit_i,
+                    &settings_i,
+                    &sep2,
+                    &quit_i,
+                ],
+            )?;
 
             TrayIconBuilder::with_id("main-tray")
                 .icon(app.default_window_icon().unwrap().clone())
@@ -1368,39 +1278,11 @@ pub fn run() {
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
-                    "quicklog" => {
-                        let pos = app.state::<Mutex<TrayPosition>>();
-                        let p = pos.lock().unwrap();
-                        let position = if p.x > 0.0 { Some((p.x, p.y)) } else { None };
-                        drop(p);
-                        open_quicklog_window_at(app, position);
-                    }
-                    "timer" => {
-                        // Toggle timer: if running → stop & open quicklog, if stopped → open quicklog
-                        let state = app.state::<Mutex<TrayTimerState>>();
-                        let running = {
-                            let s = state.lock().unwrap();
-                            s.running
-                        };
-                        if running {
-                            let mut s = state.lock().unwrap();
-                            if let Some(start) = s.start_time {
-                                let now = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
-                                let elapsed = (now - start) as f64 / 1000.0;
-                                s.accumulated_seconds += elapsed;
-                            }
-                            s.start_time = None;
-                            s.running = false;
-                            drop(s);
-                        }
-                        let pos = app.state::<Mutex<TrayPosition>>();
-                        let p = pos.lock().unwrap();
-                        let position = if p.x > 0.0 { Some((p.x, p.y)) } else { None };
-                        drop(p);
-                        open_quicklog_window_at(app, position);
-                    }
-                    "show" => show_main_window(app),
+                    "dashboard" => open_tray_destination(app, "dashboard"),
+                    "calendar" => open_tray_destination(app, "calendar"),
+                    "schedule" => open_tray_destination(app, "schedule"),
+                    "audit" => open_tray_destination(app, "audit"),
+                    "settings" => open_tray_destination(app, "settings"),
                     "quit" => app.exit(0),
                     _ => {}
                 })
@@ -1409,49 +1291,16 @@ pub fn run() {
                         TrayIconEvent::Click {
                             button: MouseButton::Left,
                             button_state: MouseButtonState::Up,
-                            rect,
                             ..
                         } => {
-                            let (rx, ry, rw, rh) = extract_rect(&rect);
-                            let icon_x = rx + rw / 2.0;
-                            let icon_y = ry + rh;
-                            // Store for menu events
-                            {
-                                let pos = tray.app_handle().state::<Mutex<TrayPosition>>();
-                                let mut p = pos.lock().unwrap();
-                                p.x = icon_x;
-                                p.y = icon_y;
-                            }
-                            // Open Quick Log near tray icon
-                            open_quicklog_window_at(tray.app_handle(), Some((icon_x, icon_y)));
-                        }
-                        TrayIconEvent::Click {
-                            button: MouseButton::Right,
-                            rect,
-                            ..
-                        } => {
-                            let (rx, ry, rw, rh) = extract_rect(&rect);
-                            let pos = tray.app_handle().state::<Mutex<TrayPosition>>();
-                            let mut p = pos.lock().unwrap();
-                            p.x = rx + rw / 2.0;
-                            p.y = ry + rh;
+                            toggle_main_window(tray.app_handle());
                         }
                         _ => {}
                     }
                 })
                 .build(app)?;
 
-            // --- Global Shortcut: CmdOrCtrl+Shift+L to open Quick Log ---
-            // Non-fatal: on macOS this requires Accessibility permission which
-            // may not be granted yet. The app should still work without it.
-            let shortcut_handle = app.handle().clone();
-            if let Err(e) = app.global_shortcut().on_shortcut("CmdOrCtrl+Shift+L", move |_app, _shortcut, _event| {
-                open_quicklog_window(&shortcut_handle);
-            }) {
-                eprintln!("[warn] Failed to register global shortcut: {e}. App continues without it.");
-            }
-
-            // --- Background task: reminder checks & long-running timer ---
+            // --- Background task: worklog reminders ---
             let bg_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 // Initial delay: wait 60s before first check to let app finish startup
@@ -1470,31 +1319,6 @@ pub fn run() {
                         last_reminder_hour = Some(hour);
                     } else if hour != 11 && hour != 16 {
                         last_reminder_hour = None;
-                    }
-
-                    // Check if timer has been running > 4 hours
-                    let state = bg_handle.state::<Mutex<TrayTimerState>>();
-                    let should_warn = {
-                        let s = state.lock().unwrap();
-                        if s.running {
-                            if let Some(start) = s.start_time {
-                                let now_ms = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_millis() as u64;
-                                let elapsed_hours = (now_ms - start) as f64 / 1000.0 / 3600.0;
-                                elapsed_hours > 4.0
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    };
-                    if should_warn {
-                        let _ = bg_handle.emit("timer-long-running", json!({
-                            "message": "Timer sudah berjalan lebih dari 4 jam"
-                        }));
                     }
 
                     tokio::time::sleep(tokio::time::Duration::from_secs(30 * 60)).await;
@@ -1523,8 +1347,6 @@ pub fn run() {
         // background scheduler stays alive. Full exit is via the tray "Keluar".
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                // Only hide-to-tray the main window; quick log window should
-                // close normally.
                 if window.label() == "main" {
                     let _ = window.hide();
                     api.prevent_close();
@@ -1537,8 +1359,7 @@ pub fn run() {
             get_my_worklogs, get_issue_children, get_project_epics, get_parents_with_children,
             create_issue, get_assignable_users, get_create_meta,
             update_worklog, delete_worklog,
-            get_timer_state, start_timer, stop_timer, reset_timer, open_quicklog,
-            update_tray_tooltip, prepare_update_restart, take_update_success,
+            prepare_update_restart, take_update_success,
             save_ai_api_key, has_ai_api_key, clear_ai_api_key, improve_work_description,
             test_ai_api_key
         ])
