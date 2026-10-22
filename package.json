@@ -10,6 +10,9 @@
   },
   "homepage": "https://github.com/wembyjuniarrochman/jira-logwork",
   "type": "module",
+  "engines": {
+    "node": ">=24.22.1"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
