@@ -16,13 +16,48 @@
  *   node scripts/make-latest-json.mjs [--notes "Catatan rilis"]
  */
 
-import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const conf = JSON.parse(readFileSync(join(ROOT, "src-tauri/tauri.conf.json"), "utf8"));
 const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 const version = pkg.version;
+
+// --- Platform allowlist --------------------------------------------------
+// `--platforms win,mac` membatasi platform mana yang masuk feed. Default:
+// semua platform yang artefaknya ada. Ini kontrak eksplisit terhadap jebakan
+// "rilis satu OS tapi feed diam-diam menyertakan artefak OS lain yang basi":
+// saat kamu hanya build Windows, jalankan dengan `--platforms win` agar entri
+// macOS lama tidak pernah ikut.
+const platformsFlag = process.argv.indexOf("--platforms");
+const platformFilterRaw =
+  platformsFlag !== -1 ? (process.argv[platformsFlag + 1] ?? "") : "all";
+const PLATFORM_ALIASES = {
+  win: ["windows-x86_64"],
+  windows: ["windows-x86_64"],
+  mac: ["darwin-x86_64", "darwin-aarch64"],
+  macos: ["darwin-x86_64", "darwin-aarch64"],
+  darwin: ["darwin-x86_64", "darwin-aarch64"],
+};
+const allowedKeys =
+  platformFilterRaw === "all" || platformFilterRaw === ""
+    ? null // null = semua
+    : new Set(
+        platformFilterRaw
+          .split(",")
+          .map((s) => s.trim().toLowerCase())
+          .flatMap((name) => {
+            const keys = PLATFORM_ALIASES[name];
+            if (!keys) {
+              console.error(
+                `Platform "${name}" tidak dikenal. Pakai: win, mac (atau "all").`,
+              );
+              process.exit(1);
+            }
+            return keys;
+          }),
+      );
 
 // --- Alamat repo, diambil dari endpoint updater -------------------------
 const endpoint = conf.plugins?.updater?.endpoints?.[0] ?? "";
@@ -86,8 +121,23 @@ const targets = [
 
 const platforms = {};
 const missing = [];
+const skipped = [];
+
+// Artefak yang lebih tua dari ambang ini (relatif ke sekarang) dianggap sisa
+// build lama, bukan bagian dari rilis saat ini. Nama bundle macOS tidak
+// memuat versi (`JIRA Logwork.app.tar.gz`), jadi mtime adalah satu-satunya
+// sinyal untuk membedakan artefak segar dari yang basi. 6 jam memberi ruang
+// untuk build lama/berurutan tanpa menangkap artefak rilis sebelumnya.
+const STALE_THRESHOLD_MS = 6 * 60 * 60 * 1000;
+const now = Date.now();
 
 for (const t of targets) {
+  // Hormati allowlist platform: lewati target yang tidak diminta.
+  if (allowedKeys && !t.keys.some((k) => allowedKeys.has(k))) {
+    skipped.push(`${t.label}: dilewati (tidak ada di --platforms)`);
+    continue;
+  }
+
   const artifact = findIn(t.dir, t.match);
   if (!artifact) {
     missing.push(`${t.label}: tidak ada artefak di ${t.dir}`);
@@ -101,14 +151,34 @@ for (const t of targets) {
     );
     continue;
   }
+
+  // Jaring pengaman staleness: artefak jauh lebih tua dari build saat ini
+  // hampir pasti sisa rilis sebelumnya. Menyertakannya akan menautkan feed
+  // ke binari lama dengan signature yang tidak cocok untuk versi ini —
+  // persis bug yang membuat update macOS gagal. Jangan diam-diam disertakan.
+  const ageMs = now - statSync(artifact).mtimeMs;
+  if (ageMs > STALE_THRESHOLD_MS) {
+    const hours = (ageMs / 3_600_000).toFixed(1);
+    missing.push(
+      `${t.label}: artefak berumur ${hours} jam — tampak basi (sisa build lama). ` +
+        `Build ulang platform ini untuk v${version}, atau kecualikan lewat --platforms.`,
+    );
+    continue;
+  }
+
   const signature = readFileSync(sigPath, "utf8").trim();
   const fileName = artifact.split("/").pop();
   for (const key of t.keys) {
+    if (allowedKeys && !allowedKeys.has(key)) continue;
     platforms[key] = {
       signature,
       url: `${downloadBase}/${githubAssetName(fileName)}`,
     };
   }
+}
+
+if (skipped.length > 0) {
+  console.log("Dilewati sesuai --platforms:\n  - " + skipped.join("\n  - ") + "\n");
 }
 
 if (missing.length > 0) {

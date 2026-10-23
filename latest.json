@@ -1,19 +1,11 @@
 {
-  "version": "1.0.7",
-  "notes": "Improved worklog duration entry and added optional personal AI description assistance.",
-  "pub_date": "2026-09-10T13:46:32.757Z",
+  "version": "1.0.8",
+  "notes": "Perbaikan performa latar beranimasi di Windows + opsi Kurangi animasi.",
+  "pub_date": "2026-10-23T10:55:31.455Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTjMyRUJHdGJuYXExcHdDUEVFODdBejJHTWNDTFpQaUFYWjdCT0RORFJJMEY2bXdEUlFMMlZ5YjFoRmRGSFkzYXBLQ3pHNlFjWkhTRkRsTmlWd1hTaGhzLzNUbDFhQXdnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5MDQ3NzU2CWZpbGU6SklSQSBMb2d3b3JrXzEuMC43X3g2NC1zZXR1cC5leGUKSjFjVmI0Y1ExNTZEb0tVSmN5bHRMcWkwS0tQSzZaZzFOUUhQdUhkTFNIZTlwRk1aRWtaSmMvMFpaTCtRUENIdDJoekplVkw4Q3prQnVxYzBaQ2F2REE9PQo=",
-      "url": "https://github.com/wembyjuniarrochman/jira-logwork/releases/download/v1.0.7/JIRA.Logwork_1.0.7_x64-setup.exe"
-    },
-    "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTjMyRUJHdGJuYXRFMm9kUEJacmFqSytZUHQzc1liMHNGcjUxZGhTakVjczg2eVpsWW04OTdMaWpJUzhLemg4SWJUR0VvM0NtSjg4UVkwVksreEdVOFQ2WUZhUkYxMEFnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5MDQ3OTkyCWZpbGU6SklSQSBMb2d3b3JrLmFwcC50YXIuZ3oKZ0VtWm1XUW1KeHh3NTZkMVRPQ2cxTUphSGJVMkgrWU8vcEhWYStXNnJ2NWZ3U09uc1VSRkJzZFNURnlBVHlENUdsN2tHOE5mdGRRYXdnNzlJY3Z6RGc9PQo=",
-      "url": "https://github.com/wembyjuniarrochman/jira-logwork/releases/download/v1.0.7/JIRA.Logwork.app.tar.gz"
-    },
-    "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTjMyRUJHdGJuYXRFMm9kUEJacmFqSytZUHQzc1liMHNGcjUxZGhTakVjczg2eVpsWW04OTdMaWpJUzhLemg4SWJUR0VvM0NtSjg4UVkwVksreEdVOFQ2WUZhUkYxMEFnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5MDQ3OTkyCWZpbGU6SklSQSBMb2d3b3JrLmFwcC50YXIuZ3oKZ0VtWm1XUW1KeHh3NTZkMVRPQ2cxTUphSGJVMkgrWU8vcEhWYStXNnJ2NWZ3U09uc1VSRkJzZFNURnlBVHlENUdsN2tHOE5mdGRRYXdnNzlJY3Z6RGc9PQo=",
-      "url": "https://github.com/wembyjuniarrochman/jira-logwork/releases/download/v1.0.7/JIRA.Logwork.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTjMyRUJHdGJuYXZXWEFlR2lYTDV0ekltR2lrbmFNL3pPVE1qVzRSeU84Tk1ya1JSVjFNdndNamVqZ1E0ZUlGUW1UUUc3Ukp4M3VHanNKNEdUWTNOZ2I0M254UEcvc0FJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNzUyODg5CWZpbGU6SklSQSBMb2d3b3JrXzEuMC44X3g2NC1zZXR1cC5leGUKVCtTTUYzZ25oZmJTYmV6bEtFaTBHWVY3KzJIL29QV3Z5MXFkbDBNdDFHTVg2UUU1Wjd5KzllVE5rS2FLRERZbDkyLzdValJrUjdkd0dlTUVpU1loQ3c9PQo=",
+      "url": "https://github.com/wembyjuniarrochman/jira-logwork/releases/download/v1.0.8/JIRA.Logwork_1.0.8_x64-setup.exe"
     }
   }
 }
