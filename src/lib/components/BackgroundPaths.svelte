@@ -263,4 +263,19 @@
       stroke-opacity: var(--base-opacity);
     }
   }
+
+  /* Visibility gating (Windows/WebView2 perf): pause the opacity pulse while
+   * the window is hidden/unfocused. `data-doc-hidden` is set on <html> by
+   * main.ts. Global selector because the attribute is on the document root,
+   * outside this component's scope. */
+  :global(html[data-doc-hidden]) .path {
+    animation-play-state: paused;
+  }
+
+  /* Manual "reduce animations" preference: fully stop the pulse and show the
+   * curves at their resting opacity (same as prefers-reduced-motion). */
+  :global(html[data-reduce-animations]) .path {
+    animation: none;
+    stroke-opacity: var(--base-opacity);
+  }
 </style>

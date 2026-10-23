@@ -41,11 +41,18 @@
     background: var(--app-bg-gradient);
   }
 
-  /* Gradient orbs — GPU-accelerated with transform and opacity only */
+  /* Gradient orbs — GPU-accelerated with transform and opacity only.
+   *
+   * The original blur radius was 80 px, which is extremely expensive on
+   * WebView2/Windows — it forces a large-radius Gaussian convolution every
+   * frame the compositor repaints. Because the orbs are already radial
+   * gradients that fade to transparent at 70 %, most of the softness comes
+   * from the gradient itself, not the CSS blur. Halving the radius to 40 px
+   * is barely perceptible but roughly halves the per-frame blur work. */
   .orb {
     position: absolute;
     border-radius: 50%;
-    filter: blur(80px);
+    filter: blur(40px);
     will-change: transform, opacity;
     animation-timing-function: ease-in-out;
     animation-iteration-count: infinite;
@@ -148,7 +155,9 @@
       rgb(var(--shadow-rgb) / calc(0.2 * var(--shadow-strength))) 50%,
       rgb(var(--shadow-rgb) / calc(0.5 * var(--shadow-strength))) 100%
     );
-    backdrop-filter: blur(1px);
+    /* No `backdrop-filter` here: the app's own CSS notes it does not paint on
+     * the Windows WebView2 build, so on Windows it was pure compositor cost
+     * for zero visual gain. The radial gradient alone provides the contrast. */
   }
 
   /* Reduced motion: disable all animations, show static background */
@@ -168,5 +177,33 @@
     .orb-3 { transform: translate(20px, -25px) scale(1.02); }
     .orb-4 { transform: translate(-15px, 15px) scale(1.1); }
     .orb-5 { transform: translate(18px, -12px) scale(1.04); }
+  }
+
+  /* Visibility gating (Windows/WebView2 perf).
+   *
+   * `data-doc-hidden` is set on <html> by main.ts whenever the window is
+   * minimized, in the tray, or unfocused. Pause the animations so the
+   * compositor stops repainting the blurred orbs and drifting mesh while
+   * nobody is looking. `paused` freezes in place — no layout change — so the
+   * background resumes seamlessly when the window returns. The selector is
+   * global because the attribute lives on the document root, outside this
+   * component's scope. */
+  :global(html[data-doc-hidden]) .orb,
+  :global(html[data-doc-hidden]) .mesh-pattern {
+    animation-play-state: paused;
+  }
+
+  /* Manual "reduce animations" preference (animationStore → data attribute on
+   * <html>). Unlike the visibility gate, this fully disables the animations
+   * (not just pause) so low-end machines pay zero per-frame cost even while
+   * the window is focused. Mirrors the prefers-reduced-motion resting state so
+   * the orbs still read as a static composition. */
+  :global(html[data-reduce-animations]) .orb {
+    animation: none;
+    opacity: 0.5;
+  }
+  :global(html[data-reduce-animations]) .mesh-pattern {
+    animation: none;
+    opacity: 0.4;
   }
 </style>

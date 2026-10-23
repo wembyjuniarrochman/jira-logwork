@@ -11,6 +11,7 @@
   } from "./lib/stores/authStore";
   import { clearCacheForEmail } from "./lib/stores/worklogCacheStore";
   import { initTheme, hydrateTheme } from "./lib/stores/themeStore.svelte";
+  import { hydrateReduceAnimations } from "./lib/stores/animationStore.svelte";
   import { isOnboardingCompleted } from "./lib/stores/onboardingStore";
 
   // Tema dipasang sedini mungkin: `initTheme` menerapkan preferensi OS dan
@@ -20,6 +21,9 @@
   $effect(() => {
     const stop = initTheme();
     void hydrateTheme();
+    // Preferensi "kurangi animasi" juga dihidrasi sedini mungkin supaya latar
+    // tidak sempat beranimasi sebelum pilihan user diterapkan.
+    void hydrateReduceAnimations();
     return stop;
   });
 

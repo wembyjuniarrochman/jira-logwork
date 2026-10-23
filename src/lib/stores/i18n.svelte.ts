@@ -265,6 +265,11 @@ const DICT: Record<string, Entry> = {
   "settings.themeLight": { en: "Light", id: "Terang" },
   "settings.themeDark": { en: "Dark", id: "Gelap" },
   "settings.systemUsing": { en: "System is currently using", id: "Sistem sedang memakai tema" },
+  "settings.reduceAnimations": { en: "Reduce animations", id: "Kurangi animasi" },
+  "settings.reduceAnimationsHint": {
+    en: "Stops the animated background. Helps on slower machines where the moving background can make the whole system feel laggy.",
+    id: "Menghentikan latar beranimasi. Membantu di mesin yang lebih lambat, di mana latar bergerak dapat membuat sistem terasa berat.",
+  },
   "settings.about": { en: "About", id: "Tentang" },
   "settings.app": { en: "Application", id: "Aplikasi" },
   "settings.version": { en: "Version", id: "Versi" },

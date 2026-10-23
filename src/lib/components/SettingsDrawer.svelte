@@ -73,6 +73,10 @@
     resolvedTheme,
     type ThemePreference,
   } from "../stores/themeStore.svelte";
+  import {
+    reduceAnimationsEnabled,
+    setReduceAnimations,
+  } from "../stores/animationStore.svelte";
 
   interface Props {
     open: boolean;
@@ -1170,6 +1174,16 @@
               <strong>{resolvedTheme() === "dark" ? "gelap" : "terang"}</strong>.
             </p>
           {/if}
+
+          <label class="checkbox-label">
+            <input
+              type="checkbox"
+              checked={reduceAnimationsEnabled()}
+              onchange={(e) => setReduceAnimations(e.currentTarget.checked)}
+            />
+            <span>{t("settings.reduceAnimations")}</span>
+          </label>
+          <p class="section-hint">{t("settings.reduceAnimationsHint")}</p>
         </section>
 
         <!-- ============================================================ -->
