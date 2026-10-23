@@ -14,6 +14,11 @@ dist-macos/
 # Siapa pun yang memilikinya bisa mendorong update ke semua mesin user.
 *.key
 *.pem
+# Sabuk pengaman tambahan: kalau key updater pernah tersalin ke dalam repo,
+# atau ada folder .tauri lokal, pastikan keduanya tidak pernah ter-track.
+# (Key kanonis berada di ~/.tauri, di luar repo.)
+.tauri/
+*.key.pub
 
 # Proyek internal terpisah + arsip sumbernya. Keduanya memuat kredensial
 # Bitbucket internal di URL remote-nya, jadi tetap di luar repo ini.
